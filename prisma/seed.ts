@@ -1,9 +1,53 @@
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { nanoid } from "nanoid";
+import { readFileSync } from "node:fs";
 
 const prisma = new PrismaClient();
 const PW = bcrypt.hashSync("password123", 10);
+
+// ---- AI-generated project descriptions (DeepSeek, same key as the app) ----
+let _dsKey: string | null | undefined;
+function deepseekKey(): string | null {
+  if (_dsKey !== undefined) return _dsKey;
+  try {
+    const env = readFileSync(".env", "utf8");
+    const m = env.match(/^DEEPSEEK_API_KEY=(.*)$/m);
+    _dsKey = m ? m[1].trim().replace(/^["']|["']$/g, "") : null;
+  } catch {
+    _dsKey = null;
+  }
+  return _dsKey || null;
+}
+/* eslint-disable @typescript-eslint/no-explicit-any */
+async function aiDescribe(title: string, board: string, diagram: any, code: string, fallback: string): Promise<string> {
+  const key = deepseekKey();
+  if (!key) return fallback;
+  try {
+    const comps = (diagram.parts || [])
+      .filter((p: any) => p.id !== "mcu" && !String(p.type).startsWith("__board__"))
+      .map((p: any) => p.type);
+    const conns = (diagram.wires || []).map((w: any) => `${w.from} -> ${w.to}`).join("\n");
+    const res = await fetch("https://api.deepseek.com/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+      body: JSON.stringify({
+        model: process.env.DEEPSEEK_MODEL || "deepseek-v4-pro",
+        stream: false,
+        messages: [
+          { role: "system", content: "You write ONE short, friendly sentence (max 22 words) for a kids' electronics project card subtitle, based on the circuit. No markdown, no quotes, no trailing period needed." },
+          { role: "user", content: `Project: ${title}\nBoard: ${board}\nComponents: ${comps.join(", ")}\nConnections:\n${conns}\n\nCode:\n${code.slice(0, 1400)}` },
+        ],
+      }),
+    });
+    if (!res.ok) return fallback;
+    const data: any = await res.json();
+    const text: string | undefined = data?.choices?.[0]?.message?.content?.trim();
+    return text ? text.replace(/^["']|["']$/g, "").slice(0, 200) : fallback;
+  } catch {
+    return fallback;
+  }
+}
 
 type AnyJson = Record<string, unknown>;
 
@@ -139,8 +183,8 @@ const WK_KEYPAD = {
   ],
 };
 
-const CLOCK_CODE = `// Wokwi example: 7-segment clock circuit (by Uri Shaked)
-// RoboCode demo sketch — press a button to sound the buzzer.
+const CLOCK_CODE = `// RoboCode.Africa — 7-segment digital clock
+// Demo sketch: press a button to sound the buzzer.
 int buttons[] = {A0, A1, A2};
 int notes[] = {262, 330, 392};
 const int BUZZER = A3;
@@ -166,8 +210,8 @@ void loop() {
   delay(60);
 }`;
 
-const KEYPAD_CODE = `// Wokwi example: keypad + servo door lock (by Uri Shaked)
-// RoboCode demo sketch — LCD status + servo "lock/unlock".
+const KEYPAD_CODE = `// RoboCode.Africa — keypad + servo door lock
+// Demo sketch: LCD status + servo "lock/unlock".
 #include <LiquidCrystal.h>
 #include <Servo.h>
 
@@ -535,44 +579,44 @@ async function main() {
 
   // Sample projects
   const proj1 = await prisma.project.create({
-    data: { ownerId: tariro.id, tenantId: springfield.id, title: "My Blinking LED", description: "First circuit!", boardType: "arduino-uno", diagram: blinkDiagram(), visibility: "tenant" },
+    data: { ownerId: tariro.id, tenantId: springfield.id, title: "My Blinking LED", description: await aiDescribe("My Blinking LED", "arduino-uno", blinkDiagram(), BLINK_CODE, "An Arduino UNO blinks an LED through a resistor — the perfect first circuit."), boardType: "arduino-uno", diagram: blinkDiagram(), visibility: "tenant" },
   });
   await prisma.codeFile.create({ data: { projectId: proj1.id, authorId: tariro.id, filename: "sketch.ino", language: "arduino", content: BLINK_CODE } });
 
   const proj2 = await prisma.project.create({
-    data: { ownerId: tariro.id, tenantId: springfield.id, title: "Distance Alarm Robot", description: "Beeps near walls", boardType: "arduino-uno", diagram: ultrasonicDiagram(), visibility: "tenant" },
+    data: { ownerId: tariro.id, tenantId: springfield.id, title: "Distance Alarm Robot", description: await aiDescribe("Distance Alarm Robot", "arduino-uno", ultrasonicDiagram(), ULTRASONIC_CODE, "An ultrasonic sensor measures distance and sounds the buzzer when something gets too close."), boardType: "arduino-uno", diagram: ultrasonicDiagram(), visibility: "tenant" },
   });
   await prisma.codeFile.create({ data: { projectId: proj2.id, authorId: tariro.id, filename: "sketch.ino", language: "arduino", content: ULTRASONIC_CODE } });
 
   // A public template
   const tmpl = await prisma.project.create({
-    data: { ownerId: teacher.id, tenantId: springfield.id, title: "Starter: Blink", description: "Official starter template.", boardType: "arduino-uno", diagram: blinkDiagram(), visibility: "public", isTemplate: true },
+    data: { ownerId: teacher.id, tenantId: springfield.id, title: "Starter: Blink", description: await aiDescribe("Starter: Blink", "arduino-uno", blinkDiagram(), BLINK_CODE, "The classic starting point — make an LED blink on and off with a few lines of code."), boardType: "arduino-uno", diagram: blinkDiagram(), visibility: "public", isTemplate: true },
   });
   await prisma.codeFile.create({ data: { projectId: tmpl.id, filename: "sketch.ino", language: "arduino", content: BLINK_CODE } });
 
   const lcdTmpl = await prisma.project.create({
-    data: { ownerId: teacher.id, tenantId: springfield.id, title: "LCD Hello World", description: "Print text to a 16x2 LCD over I2C.", boardType: "arduino-uno", diagram: lcdDiagram(), visibility: "public", isTemplate: true },
+    data: { ownerId: teacher.id, tenantId: springfield.id, title: "LCD Hello World", description: await aiDescribe("LCD Hello World", "arduino-uno", lcdDiagram(), LCD_CODE, "Display your own text messages on a 16x2 LCD screen wired over I2C."), boardType: "arduino-uno", diagram: lcdDiagram(), visibility: "public", isTemplate: true },
   });
   await prisma.codeFile.create({ data: { projectId: lcdTmpl.id, filename: "sketch.ino", language: "arduino", content: LCD_CODE } });
 
   const neoTmpl = await prisma.project.create({
-    data: { ownerId: teacher.id, tenantId: springfield.id, title: "NeoPixel Rainbow", description: "Cycle an addressable RGB pixel through colours.", boardType: "arduino-uno", diagram: neoDiagram(), visibility: "public", isTemplate: true },
+    data: { ownerId: teacher.id, tenantId: springfield.id, title: "NeoPixel Rainbow", description: await aiDescribe("NeoPixel Rainbow", "arduino-uno", neoDiagram(), NEO_CODE, "Light up an addressable RGB NeoPixel and cycle it through a rainbow of colours."), boardType: "arduino-uno", diagram: neoDiagram(), visibility: "public", isTemplate: true },
   });
   await prisma.codeFile.create({ data: { projectId: neoTmpl.id, filename: "sketch.ino", language: "arduino", content: NEO_CODE } });
 
   const espTmpl = await prisma.project.create({
-    data: { ownerId: teacher.id, tenantId: springfield.id, title: "ESP32 Blink", description: "Blink an external LED on an ESP32 (GPIO 2).", boardType: "esp32", diagram: esp32Diagram(), visibility: "public", isTemplate: true },
+    data: { ownerId: teacher.id, tenantId: springfield.id, title: "ESP32 Blink", description: await aiDescribe("ESP32 Blink", "esp32", esp32Diagram(), ESP32_LED_CODE, "Blink an external LED on the Wi-Fi-capable ESP32 board using GPIO 2."), boardType: "esp32", diagram: esp32Diagram(), visibility: "public", isTemplate: true },
   });
   await prisma.codeFile.create({ data: { projectId: espTmpl.id, filename: "sketch.ino", language: "arduino", content: ESP32_LED_CODE } });
 
-  // Imported Wokwi examples (faithful diagrams, original layouts)
+  // Example projects
   const wkClock = await prisma.project.create({
-    data: { ownerId: teacher.id, tenantId: springfield.id, title: "Wokwi: 7-Segment Clock", description: "Imported from Wokwi (Uri Shaked) — 7-segment + RTC + buttons + buzzer.", boardType: "arduino-uno", diagram: fromWokwi(WK_CLOCK), visibility: "public", isTemplate: true },
+    data: { ownerId: teacher.id, tenantId: springfield.id, title: "Digital Alarm Clock", description: await aiDescribe("Digital Alarm Clock", "arduino-uno", fromWokwi(WK_CLOCK), CLOCK_CODE, "A 4-digit 7-segment clock with a DS1307 real-time clock module, three buttons (Hours, Minutes, Alarm) and a buzzer alarm."), boardType: "arduino-uno", diagram: fromWokwi(WK_CLOCK), visibility: "public", isTemplate: true },
   });
   await prisma.codeFile.create({ data: { projectId: wkClock.id, filename: "sketch.ino", language: "arduino", content: CLOCK_CODE } });
 
   const wkKeypad = await prisma.project.create({
-    data: { ownerId: teacher.id, tenantId: springfield.id, title: "Wokwi: Keypad Door Lock", description: "Imported from Wokwi (Uri Shaked) — keypad + servo + 16x2 LCD.", boardType: "arduino-uno", diagram: fromWokwi(WK_KEYPAD), visibility: "public", isTemplate: true },
+    data: { ownerId: teacher.id, tenantId: springfield.id, title: "Keypad Door Lock", description: await aiDescribe("Keypad Door Lock", "arduino-uno", fromWokwi(WK_KEYPAD), KEYPAD_CODE, "A door lock that reads a code on a 4x4 keypad, shows status on a 16x2 LCD, and turns a servo to lock or unlock."), boardType: "arduino-uno", diagram: fromWokwi(WK_KEYPAD), visibility: "public", isTemplate: true },
   });
   await prisma.codeFile.create({ data: { projectId: wkKeypad.id, filename: "sketch.ino", language: "arduino", content: KEYPAD_CODE } });
 

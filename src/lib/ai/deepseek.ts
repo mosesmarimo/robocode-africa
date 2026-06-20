@@ -15,32 +15,30 @@ export interface ValidateInput {
   image?: string;
 }
 
-export interface ValidateResult {
+export interface AiResult {
   ok: boolean;
   configured: boolean;
   text: string;
 }
 
-const SYSTEM_PROMPT =
+const VALIDATE_SYSTEM =
   "You are an expert electronics and Arduino tutor reviewing a student's circuit on RoboCode.Africa, " +
-  "a safe learning platform for young students. You are given the project description, the list of components, " +
-  "how they are wired (pin to pin), and the code. Validate that: (1) the wiring is sensible for these components " +
-  "(power/ground present, resistors where needed, correct signal pins), and (2) the code matches the wiring " +
-  "(pins used in code are actually connected to the right parts). Be encouraging and age-appropriate, concise, and specific. " +
-  "Reply in short GitHub-flavoured Markdown with exactly these sections: '### Verdict' (one line), " +
-  "'### Issues' (a bullet list, or 'None found'), and '### Suggestions' (a short bullet list).";
+  "a safe learning platform for young students. You are given the project, the components, how they are wired " +
+  "(pin to pin), the code, and a screenshot of the circuit diagram. Validate that: (1) the wiring is sensible " +
+  "for these components (power/ground present, resistors where needed, correct signal pins), and (2) the code " +
+  "matches the wiring. Be encouraging, age-appropriate, concise, and specific. Reply in short GitHub-flavoured " +
+  "Markdown with exactly these sections: '### Verdict' (one line), '### Issues' (a bullet list, or 'None found'), " +
+  "and '### Suggestions' (a short bullet list). Never mention Wokwi.";
 
-export async function validateCircuit(input: ValidateInput): Promise<ValidateResult> {
-  const key = process.env.DEEPSEEK_API_KEY;
-  if (!key) {
-    return {
-      ok: false,
-      configured: false,
-      text: "AI validation isn't configured yet. Set **DEEPSEEK_API_KEY** in the server environment (the same key used by ZivoCloud-Backend) to enable it.",
-    };
-  }
+const DESCRIBE_SYSTEM =
+  "You write an engaging, clear, kid-friendly project description for a RoboCode.Africa robotics project, " +
+  "based on the components, wiring, code and the attached diagram screenshot. Output GitHub-flavoured Markdown with: " +
+  "a single '# Title' line, a one-paragraph intro, '## What it does', '## Components' (bullet list), " +
+  "'## How it's wired' (brief, mention the key pins), and '## How the code works' (a few short bullets). " +
+  "Keep it accurate to the actual circuit, encouraging, and suitable for primary/high-school students. Never mention Wokwi.";
 
-  const user = [
+function buildUserText(input: ValidateInput): string {
+  return [
     `Project: ${input.title}`,
     `Board: ${input.board}`,
     "",
@@ -54,15 +52,22 @@ export async function validateCircuit(input: ValidateInput): Promise<ValidateRes
     "```cpp",
     input.code.slice(0, 8000),
     "```",
-    "",
-    "Description:",
-    input.readme.slice(0, 4000),
   ].join("\n");
+}
 
-  // Send the diagram screenshot alongside the text when available (multimodal).
+async function runChat(system: string, input: ValidateInput): Promise<AiResult> {
+  const key = process.env.DEEPSEEK_API_KEY;
+  if (!key) {
+    return {
+      ok: false,
+      configured: false,
+      text: "AI isn't configured yet. Set **DEEPSEEK_API_KEY** in the server environment to enable it.",
+    };
+  }
+  const user = buildUserText(input);
   const userContent = input.image
     ? [
-        { type: "text", text: user + "\n\nA rendered screenshot of the circuit diagram is attached — use it to check the layout and connections." },
+        { type: "text", text: user + "\n\nA rendered screenshot of the circuit diagram is attached." },
         { type: "image_url", image_url: { url: input.image } },
       ]
     : user;
@@ -74,7 +79,7 @@ export async function validateCircuit(input: ValidateInput): Promise<ValidateRes
       body: JSON.stringify({
         model: MODEL,
         messages: [
-          { role: "system", content: SYSTEM_PROMPT },
+          { role: "system", content: system },
           { role: "user", content },
         ],
         stream: false,
@@ -83,16 +88,26 @@ export async function validateCircuit(input: ValidateInput): Promise<ValidateRes
 
   try {
     let res = await doFetch(userContent);
-    // If the model doesn't accept images, retry with text only so validation still works.
-    if (!res.ok && input.image) res = await doFetch(user);
+    if (!res.ok && input.image) res = await doFetch(user); // text-only fallback if vision unsupported
     if (!res.ok) {
       const detail = await res.text().catch(() => "");
       return { ok: false, configured: true, text: `DeepSeek request failed (HTTP ${res.status}). ${detail.slice(0, 200)}` };
     }
     const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
-    const text = data?.choices?.[0]?.message?.content?.trim() || "The validator returned no content.";
+    const text = data?.choices?.[0]?.message?.content?.trim() || "No content returned.";
     return { ok: true, configured: true, text };
   } catch (e) {
     return { ok: false, configured: true, text: `Could not reach DeepSeek: ${(e as Error).message}` };
   }
 }
+
+export function validateCircuit(input: ValidateInput): Promise<AiResult> {
+  return runChat(VALIDATE_SYSTEM, input);
+}
+
+export function describeCircuit(input: ValidateInput): Promise<AiResult> {
+  return runChat(DESCRIBE_SYSTEM, input);
+}
+
+// Back-compat alias
+export type ValidateResult = AiResult;

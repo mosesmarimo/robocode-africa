@@ -53,7 +53,7 @@ const STUDIO_FEATURES = [
   {
     icon: Layers,
     title: "Component library",
-    desc: "LEDs, resistors, capacitors, servo motors, DHT22 sensors, OLED displays, buttons, buzzers and growing — based on open Wokwi board definitions.",
+    desc: "LEDs, resistors, capacitors, servo motors, DHT22 sensors, OLED displays, buttons, buzzers and growing — accurate, ready-to-wire components.",
   },
   {
     icon: Wifi,
@@ -240,7 +240,7 @@ export default function FeaturesPage() {
             <Badge variant="secondary" className="mb-3">Supported boards</Badge>
             <h3 className="font-display text-2xl font-bold">Simulate real microcontrollers</h3>
             <p className="mx-auto mt-2 max-w-lg text-muted-foreground">
-              Powered by rp2040js and Wokwi&apos;s open board definitions, our simulator faithfully emulates the chips students will graduate to using.
+              Our simulator faithfully emulates real microcontrollers, so students master the exact chips they will graduate to using.
             </p>
           </div>
           <div className="grid gap-6 md:grid-cols-3">

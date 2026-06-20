@@ -328,7 +328,7 @@ export default function HomePage() {
                 Simulate <span className="text-gradient">real boards</span>
               </h2>
               <p className="mx-auto mt-3 max-w-xl text-muted-foreground">
-                Powered by rp2040js and Wokwi&apos;s open board definitions — the same chips your students will one day hold in their hands.
+                Cycle-accurate chip emulation — the same boards your students will one day hold in their hands.
               </p>
             </div>
             <div className="grid gap-6 md:grid-cols-3">

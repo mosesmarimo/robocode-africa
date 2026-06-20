@@ -1,13 +1,15 @@
 "use client";
 
+import * as React from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Sparkles, Loader2 } from "lucide-react";
+import { Sparkles, Loader2, Wand2 } from "lucide-react";
+import { toast } from "sonner";
 import { useStudio } from "@/lib/studio/store";
 import { partLabel } from "@/lib/studio/readme";
 import { getBoard } from "@/lib/domain/boards";
 import { Button } from "@/components/ui/button";
-import { runValidation } from "@/lib/studio/run-validation";
+import { runValidation, runDescribe } from "@/lib/studio/run-validation";
 
 export function Description() {
   const readme = useStudio((s) => s.readmeContent());
@@ -16,18 +18,32 @@ export function Description() {
   const board = useStudio((s) => s.board);
   const pending = useStudio((s) => s.aiValidating);
   const result = useStudio((s) => s.aiResult);
+  const [describing, startDescribe] = React.useTransition();
   const components = parts.filter((p) => p.id !== "mcu" && !p.type.startsWith("__board__"));
+
+  function generate() {
+    startDescribe(async () => {
+      const r = await runDescribe();
+      if (r.ok) toast.success("Description updated by AI");
+      else toast.error(r.message ?? "Could not generate description");
+    });
+  }
 
   return (
     <div className="mx-auto max-w-3xl px-6 py-8">
-      <div className="mb-6 flex items-center justify-between gap-3 rounded-xl border border-border bg-card p-4">
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card p-4">
         <div>
-          <p className="flex items-center gap-1.5 font-display font-semibold"><Sparkles className="size-4 text-primary" /> AI circuit validation</p>
-          <p className="text-sm text-muted-foreground">Have DeepSeek check that your wiring and code match.</p>
+          <p className="flex items-center gap-1.5 font-display font-semibold"><Sparkles className="size-4 text-primary" /> AI assistant</p>
+          <p className="text-sm text-muted-foreground">Generate a description from your circuit, or validate the wiring & code.</p>
         </div>
-        <Button variant="gradient" onClick={() => runValidation()} disabled={pending}>
-          {pending ? <><Loader2 className="size-4 animate-spin" /> Checking…</> : "Validate with AI"}
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={generate} disabled={describing}>
+            {describing ? <><Loader2 className="size-4 animate-spin" /> Writing…</> : <><Wand2 className="size-4" /> Generate description</>}
+          </Button>
+          <Button variant="gradient" onClick={() => runValidation()} disabled={pending}>
+            {pending ? <><Loader2 className="size-4 animate-spin" /> Checking…</> : "Validate with AI"}
+          </Button>
+        </div>
       </div>
       {result && (
         <div className="mb-8 rounded-xl border border-primary/30 bg-primary/5 p-4">
