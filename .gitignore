@@ -39,3 +39,12 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# RoboCode dev artifacts
+/prisma/*.db
+/prisma/*.db-journal
+/screenshots
+/.playwright-mcp
+*.log
+/test-results
+/playwright-report

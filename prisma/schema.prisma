@@ -1,0 +1,592 @@
+// RoboCode.Africa data model. SQLite for dev (Postgres-portable).
+// Enum-like fields are stored as String (SQLite has no enums); allowed values noted in comments
+// and enforced in app code via zod. Flexible blobs use Json (stored as TEXT on SQLite).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ----------------------------------------------------------------------------
+// Tenancy & branding
+// ----------------------------------------------------------------------------
+model Tenant {
+  id           String   @id @default(cuid())
+  slug         String   @unique // subdomain, e.g. "springfield" -> springfield.robocode.africa
+  name         String
+  isPlatform   Boolean  @default(false) // the robocode.africa main tenant
+  status       String   @default("active") // active | suspended | pending
+  branding     Json? // { logoUrl, primary, secondary, accent, tagline, ... }
+  policies     Json? // { autoApprove, allowedFeatures[], ageGroups[], ... }
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  users            User[]
+  domains          Domain[]
+  teams            Team[]
+  classes          Class[]
+  courses          Course[]
+  competitions     Competition[]
+  approvalRequests ApprovalRequest[]
+  boardDefs        BoardDefinition[]
+  announcements    Announcement[]
+  moderationCases  ModerationCase[]
+  auditLogs        AuditLog[]
+  subscription     Subscription?
+}
+
+model Domain {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hostname  String   @unique
+  type      String   @default("custom") // subdomain | custom
+  verified  Boolean  @default(false)
+  txtToken  String?
+  sslStatus String   @default("pending") // pending | active | failed
+  createdAt DateTime @default(now())
+}
+
+model Plan {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  seats     Int      @default(50)
+  priceCents Int     @default(0)
+  features  Json?
+  subscriptions Subscription[]
+}
+
+model Subscription {
+  id        String   @id @default(cuid())
+  tenantId  String   @unique
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  planId    String
+  plan      Plan     @relation(fields: [planId], references: [id])
+  status    String   @default("active")
+  seatsUsed Int      @default(0)
+  renewsAt  DateTime?
+  createdAt DateTime @default(now())
+}
+
+// ----------------------------------------------------------------------------
+// Identity, roles, approval, consent
+// ----------------------------------------------------------------------------
+model User {
+  id           String   @id @default(cuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  email        String
+  username     String?
+  passwordHash String
+  displayName  String
+  role         String   @default("student") // super_admin | moderator | school_admin | teacher | student | parent
+  status       String   @default("pending") // pending | active | suspended | rejected
+  isMinor      Boolean  @default(true)
+  birthYear    Int?
+  guardianEmail String?
+  avatarSeed   String   @default("robo")
+  locale       String   @default("en")
+  prefs        Json?
+  roboPoints   Int      @default(0)
+  level        Int      @default(1)
+  lastLoginAt  DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  consent           ConsentRecord?
+  approvalRequest   ApprovalRequest?  @relation("ApprovalSubject")
+  decidedApprovals  ApprovalRequest[] @relation("ApprovalDecider")
+  projects          Project[]
+  codeFiles         CodeFile[]
+  submissions       Submission[]
+  teamMemberships   TeamMember[]
+  taughtClasses     Class[]           @relation("ClassTeacher")
+  classMemberships  ClassMember[]
+  enrollments       Enrollment[]
+  lessonProgress    LessonProgress[]
+  badges            UserBadge[]
+  pointsLedger      RoboPointLedger[]
+  notifications     Notification[]
+  announcements     Announcement[]
+  chatMessages      ChatMessage[]
+  reportedCases     ModerationCase[]  @relation("CaseReporter")
+  resolvedCases     ModerationCase[]  @relation("CaseResolver")
+  auditLogs         AuditLog[]
+  ownedTeams        Team[]            @relation("TeamCaptain")
+
+  @@unique([tenantId, email])
+  @@index([tenantId, role])
+  @@index([tenantId, status])
+}
+
+model ConsentRecord {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  guardianEmail String
+  status      String   @default("pending") // pending | granted | denied
+  token       String   @unique
+  grantedAt   DateTime?
+  createdAt   DateTime @default(now())
+}
+
+model ApprovalRequest {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  user        User     @relation("ApprovalSubject", fields: [userId], references: [id], onDelete: Cascade)
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  type        String   @default("student_school") // student_direct | student_school | teacher
+  status      String   @default("pending") // pending | approved | rejected
+  decidedById String?
+  decidedBy   User?    @relation("ApprovalDecider", fields: [decidedById], references: [id])
+  decidedAt   DateTime?
+  reason      String?
+  createdAt   DateTime @default(now())
+
+  @@index([tenantId, status])
+}
+
+// ----------------------------------------------------------------------------
+// Projects, simulator, boards
+// ----------------------------------------------------------------------------
+model Project {
+  id          String   @id @default(cuid())
+  ownerId     String
+  owner       User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  tenantId    String
+  teamId      String?
+  team        Team?    @relation(fields: [teamId], references: [id])
+  title       String
+  description String?
+  boardType   String   @default("arduino-uno") // arduino-uno | esp32 | raspberry-pi-pico | <custom>
+  diagram     Json     // parts + connections (diagram.json style)
+  thumbnail   String?
+  visibility  String   @default("private") // private | tenant | public
+  isTemplate  Boolean  @default(false)
+  forkedFromId String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  codeFiles      CodeFile[]
+  versions       ProjectVersion[]
+  simulationRuns SimulationRun[]
+  submissions    Submission[]
+
+  @@index([ownerId])
+  @@index([tenantId, visibility])
+}
+
+model CodeFile {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  authorId  String?
+  author    User?    @relation(fields: [authorId], references: [id])
+  filename  String   @default("sketch.ino")
+  language  String   @default("arduino") // arduino | micropython | circuitpython | blocks
+  content   String   @default("")
+  updatedAt DateTime @updatedAt
+}
+
+model ProjectVersion {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  label     String?
+  snapshot  Json
+  createdAt DateTime @default(now())
+}
+
+model SimulationRun {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  status    String   @default("ok") // ok | error
+  durationMs Int     @default(0)
+  log       String?
+  createdAt DateTime @default(now())
+}
+
+model BoardDefinition {
+  id          String   @id @default(cuid())
+  tenantId    String?  // null = global/built-in
+  tenant      Tenant?  @relation(fields: [tenantId], references: [id])
+  boardId     String   // slug
+  name        String
+  mcuTarget   String   // avr8js | rp2040js | esp32
+  manifest    Json     // wokwi-boards style board.json
+  svgAsset    String?
+  scope       String   @default("global") // global | tenant
+  status      String   @default("approved") // pending | approved | rejected
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  @@unique([tenantId, boardId])
+}
+
+// ----------------------------------------------------------------------------
+// Learning: courses, lessons, tasks, enrollment, progress, submissions
+// ----------------------------------------------------------------------------
+model Course {
+  id          String   @id @default(cuid())
+  tenantId    String?  // null = global catalogue
+  tenant      Tenant?  @relation(fields: [tenantId], references: [id])
+  title       String
+  slug        String
+  track       String   @default("coding") // robotics | coding | ai
+  level       String   @default("primary") // primary | high
+  description String?
+  coverImage  String?
+  published   Boolean  @default(true)
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  lessons     Lesson[]
+  tasks       Task[]
+  enrollments Enrollment[]
+  assignments Assignment[]
+
+  @@unique([slug])
+}
+
+model Lesson {
+  id         String   @id @default(cuid())
+  courseId   String
+  course     Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  title      String
+  slug       String
+  order      Int      @default(0)
+  contentType String  @default("markdown") // markdown | video | interactive
+  body       Json     // rich content blocks
+  estMinutes Int      @default(10)
+  progress   LessonProgress[]
+}
+
+model Task {
+  id            String   @id @default(cuid())
+  courseId      String?
+  course        Course?  @relation(fields: [courseId], references: [id])
+  title         String
+  slug          String   @unique
+  description   String
+  track         String   @default("coding")
+  difficulty    String   @default("beginner") // beginner | intermediate | advanced
+  points        Int      @default(50)
+  boardType     String   @default("arduino-uno")
+  starterDiagram Json?
+  starterCode   String?
+  checks        Json     // auto-grader assertions
+  rubric        Json?
+  createdAt     DateTime @default(now())
+
+  submissions Submission[]
+  assignments Assignment[]
+  rounds      Round[]
+}
+
+model Enrollment {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  courseId   String
+  course     Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  progress   Json?
+  completedAt DateTime?
+  createdAt  DateTime @default(now())
+
+  @@unique([userId, courseId])
+}
+
+model LessonProgress {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lessonId  String
+  lesson    Lesson   @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  status    String   @default("in_progress") // in_progress | completed
+  completedAt DateTime?
+
+  @@unique([userId, lessonId])
+}
+
+model Submission {
+  id         String   @id @default(cuid())
+  taskId     String
+  task       Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  teamId     String?
+  team       Team?    @relation(fields: [teamId], references: [id])
+  projectId  String?
+  project    Project? @relation(fields: [projectId], references: [id])
+  code       String?
+  diagram    Json?
+  status     String   @default("submitted") // submitted | passed | failed | graded
+  score      Int?
+  autoResult Json?
+  feedback   String?
+  gradedById String?
+  createdAt  DateTime @default(now())
+
+  @@index([taskId])
+  @@index([userId])
+}
+
+// ----------------------------------------------------------------------------
+// Classes & assignments (teacher)
+// ----------------------------------------------------------------------------
+model Class {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  teacherId String
+  teacher   User     @relation("ClassTeacher", fields: [teacherId], references: [id])
+  name      String
+  joinCode  String   @unique
+  createdAt DateTime @default(now())
+
+  members     ClassMember[]
+  assignments Assignment[]
+}
+
+model ClassMember {
+  id      String @id @default(cuid())
+  classId String
+  class   Class  @relation(fields: [classId], references: [id], onDelete: Cascade)
+  userId  String
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role    String @default("student")
+
+  @@unique([classId, userId])
+}
+
+model Assignment {
+  id          String   @id @default(cuid())
+  classId     String
+  class       Class    @relation(fields: [classId], references: [id], onDelete: Cascade)
+  taskId      String?
+  task        Task?    @relation(fields: [taskId], references: [id])
+  courseId    String?
+  course      Course?  @relation(fields: [courseId], references: [id])
+  title       String
+  instructions String?
+  dueAt       DateTime?
+  createdAt   DateTime @default(now())
+}
+
+// ----------------------------------------------------------------------------
+// Teams & competitions
+// ----------------------------------------------------------------------------
+model Team {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name        String
+  kind        String   @default("intra_school") // intra_school | school_rep
+  description String?
+  avatarSeed  String   @default("team")
+  captainId   String
+  captain     User     @relation("TeamCaptain", fields: [captainId], references: [id])
+  roboPoints  Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  members      TeamMember[]
+  projects     Project[]
+  submissions  Submission[]
+  entries      CompetitionEntry[]
+  chatMessages ChatMessage[]
+
+  @@index([tenantId])
+}
+
+model TeamMember {
+  id      String @id @default(cuid())
+  teamId  String
+  team    Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  userId  String
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role    String @default("member") // captain | member
+  status  String @default("active") // invited | active
+
+  @@unique([teamId, userId])
+}
+
+model Competition {
+  id        String   @id @default(cuid())
+  tenantId  String?  // null = global / inter-school
+  tenant    Tenant?  @relation(fields: [tenantId], references: [id])
+  title     String
+  slug      String   @unique
+  type      String   @default("coding") // coding | robotics | ai
+  scope     String   @default("intra_school") // intra_school | inter_school | global
+  status    String   @default("upcoming") // upcoming | live | judging | closed
+  description String?
+  startsAt  DateTime?
+  endsAt    DateTime?
+  rules     Json?
+  createdAt DateTime @default(now())
+
+  rounds  Round[]
+  entries CompetitionEntry[]
+  scores  Score[]
+}
+
+model Round {
+  id            String   @id @default(cuid())
+  competitionId String
+  competition   Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  name          String
+  order         Int      @default(0)
+  taskId        String?
+  task          Task?    @relation(fields: [taskId], references: [id])
+  startsAt      DateTime?
+  endsAt        DateTime?
+  scores        Score[]
+}
+
+model CompetitionEntry {
+  id            String   @id @default(cuid())
+  competitionId String
+  competition   Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  teamId        String?
+  team          Team?    @relation(fields: [teamId], references: [id])
+  userId        String?
+  status        String   @default("registered")
+  totalScore    Int      @default(0)
+  createdAt     DateTime @default(now())
+  scores        Score[]
+
+  @@index([competitionId])
+}
+
+model Score {
+  id            String   @id @default(cuid())
+  competitionId String?
+  competition   Competition? @relation(fields: [competitionId], references: [id])
+  roundId       String?
+  round         Round?   @relation(fields: [roundId], references: [id])
+  entryId       String
+  entry         CompetitionEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  points        Int      @default(0)
+  breakdown     Json?
+  judgedById    String?
+  createdAt     DateTime @default(now())
+}
+
+// ----------------------------------------------------------------------------
+// Gamification
+// ----------------------------------------------------------------------------
+model RoboPointLedger {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  teamId    String?
+  delta     Int
+  reason    String
+  refType   String?
+  refId     String?
+  idemKey   String?  @unique
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model Badge {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  name        String
+  description String
+  icon        String   @default("award")
+  criteria    Json?
+  users       UserBadge[]
+}
+
+model UserBadge {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  badgeId   String
+  badge     Badge    @relation(fields: [badgeId], references: [id], onDelete: Cascade)
+  awardedAt DateTime @default(now())
+
+  @@unique([userId, badgeId])
+}
+
+// ----------------------------------------------------------------------------
+// Communication, moderation, audit
+// ----------------------------------------------------------------------------
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String   @default("info")
+  title     String
+  body      String?
+  data      Json?
+  readAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId, readAt])
+}
+
+model Announcement {
+  id        String   @id @default(cuid())
+  tenantId  String?
+  tenant    Tenant?  @relation(fields: [tenantId], references: [id])
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id])
+  title     String
+  body      String
+  audience  String   @default("all") // all | students | teachers
+  createdAt DateTime @default(now())
+}
+
+model ChatMessage {
+  id        String   @id @default(cuid())
+  teamId    String
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  body      String
+  status    String   @default("approved") // pending | approved | blocked
+  createdAt DateTime @default(now())
+
+  @@index([teamId])
+}
+
+model ModerationCase {
+  id         String   @id @default(cuid())
+  tenantId   String?
+  tenant     Tenant?  @relation(fields: [tenantId], references: [id])
+  reporterId String?
+  reporter   User?    @relation("CaseReporter", fields: [reporterId], references: [id])
+  targetType String
+  targetId   String
+  reason     String
+  status     String   @default("open") // open | reviewing | resolved | dismissed
+  notes      String?
+  resolvedById String?
+  resolvedBy User?    @relation("CaseResolver", fields: [resolvedById], references: [id])
+  createdAt  DateTime @default(now())
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  tenantId   String?
+  tenant     Tenant?  @relation(fields: [tenantId], references: [id])
+  actorId    String?
+  actor      User?    @relation(fields: [actorId], references: [id])
+  action     String
+  targetType String?
+  targetId   String?
+  meta       Json?
+  ip         String?
+  createdAt  DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+}

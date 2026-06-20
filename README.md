@@ -1,36 +1,64 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# RoboCode.Africa
 
-## Getting Started
+A safe, vibrant, gamified platform where primary and high-school students learn **Robotics, Coding and AI** by building real circuits in an interactive in-browser simulator — **RoboCode Studio**.
 
-First, run the development server:
+> Full specification lives in [`docs/`](./docs) (User Requirements + System Specification, `.docx` + `.pdf`). Implementation decisions are in [`DECISIONS.md`](./DECISIONS.md); progress in [`BUILD_PLAN.md`](./BUILD_PLAN.md).
+
+## Quick start
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+pnpm install
+pnpm db:reset      # create the SQLite db + seed demo data
+pnpm dev           # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+**Demo logins** (password `password123`):
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+| Role | Email |
+|------|-------|
+| Student | `tariro@springfield.robocode.africa` |
+| Teacher | `curie@springfield.robocode.africa` |
+| School admin | `admin@springfield.robocode.africa` |
+| Platform admin | `super@robocode.africa` |
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## What's inside
 
-## Learn More
+- **RoboCode Studio** — drag-drop canvas with real [Wokwi](https://github.com/wokwi) components (Arduino UNO, ESP32, Raspberry Pi Pico + 35 components), breadboard + pin-to-pin jumper wiring, Monaco editor, serial monitor.
+- **Live simulation (RVM)** — an in-browser Arduino-subset interpreter (`src/lib/sim`) drives components: LEDs (PWM brightness), **LCD text**, buzzer tones (WebAudio), servos, relays, RGB, with interactive sensor inputs (pot/ultrasonic/buttons). Headless auto-grader for challenges.
+- **Safety-first identity** — student/school signup, approval-gated activation, parental consent, RBAC, session auth.
+- **Multi-tenant white-label** — host→tenant routing + per-tenant branding (live editor) + custom-domain guide.
+- **Learning** (courses → lessons → graded challenges), **Teams** (+ moderated chat), **Competitions**, **Leaderboards**, **Badges**, **Notifications**.
+- **Admin suites** — Platform, School, and Teacher consoles.
+- **Marketing site** — landing + features/for-schools/pricing/safety/about.
 
-To learn more about Next.js, take a look at the following resources:
+## Stack
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Next.js 16 (App Router, React 19) · TypeScript · Tailwind CSS v4 + Radix UI · Prisma + SQLite (Postgres-portable) · jose/bcrypt auth · Three.js / @wokwi/elements / avr8js / rp2040js · Monaco · Zustand · Zod.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Scripts
 
-## Deploy on Vercel
+```bash
+pnpm dev          # dev server
+pnpm build        # production build
+pnpm typecheck    # tsc --noEmit
+pnpm db:seed      # seed data
+pnpm db:reset     # reset + seed
+node scripts/e2e.mjs   # end-to-end browser checks (dev server must be running)
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Project layout
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```
+src/
+  app/                 # routes: (auth), (marketing), app/** (dashboard, studio area), studio/[id]
+  components/
+    ui/                # design-system primitives (shadcn-style)
+    studio/            # canvas, palette, wiring, code editor, sim overlays
+    app/ marketing/ …  # shell, nav, feature UIs
+  lib/
+    sim/               # RVM: lexer, parser, interpreter, machine, netlist, engine, grader
+    domain/            # boards, components, roles, constants, diagram schema
+    auth/ studio/ learn/ teams/ …   # server actions + helpers
+prisma/                # schema + seed
+docs/                  # specification (docx/pdf)
+```

@@ -1,0 +1,16 @@
+---
+title: "RoboCode.Africa — System Specification Document"
+subtitle: "Platform, Simulator and RoboCode Studio"
+author: "RoboCode.Africa Engineering Team"
+date: "19 June 2026"
+version: "1.0"
+lang: en
+toc: true
+toc-depth: 3
+numbersections: true
+papersize: us-letter
+fontsize: 10pt
+margin:
+  x: 1.5cm
+  y: 1.8cm
+---

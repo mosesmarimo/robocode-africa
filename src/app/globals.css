@@ -1,26 +1,179 @@
 @import "tailwindcss";
+@import "tw-animate-css";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ----------------------------------------------------------------------------
+   Design tokens — RoboCode.Africa vibrant brand
+   Brand colours can be overridden per-tenant at runtime via --brand-* vars.
+---------------------------------------------------------------------------- */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --brand-primary: #2f6bff;
+  --brand-secondary: #12c8a0;
+  --brand-accent: #ffb020;
+
+  --background: #f6f8fc;
+  --foreground: #0b1224;
+  --card: #ffffff;
+  --card-foreground: #0b1224;
+  --popover: #ffffff;
+  --popover-foreground: #0b1224;
+  --primary: var(--brand-primary);
+  --primary-foreground: #ffffff;
+  --secondary: var(--brand-secondary);
+  --secondary-foreground: #04120e;
+  --accent: var(--brand-accent);
+  --accent-foreground: #2a1a00;
+  --muted: #eef2f9;
+  --muted-foreground: #5b6478;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --success: #16a34a;
+  --warning: #f59e0b;
+  --border: #e2e8f3;
+  --input: #e2e8f3;
+  --ring: var(--brand-primary);
+  --radius: 0.85rem;
+}
+
+.dark {
+  --background: #070b18;
+  --foreground: #e8edf9;
+  --card: #0e1426;
+  --card-foreground: #e8edf9;
+  --popover: #0e1426;
+  --popover-foreground: #e8edf9;
+  --primary: var(--brand-primary);
+  --primary-foreground: #ffffff;
+  --secondary: var(--brand-secondary);
+  --secondary-foreground: #04120e;
+  --accent: var(--brand-accent);
+  --accent-foreground: #2a1a00;
+  --muted: #161d33;
+  --muted-foreground: #94a0bd;
+  --destructive: #f87171;
+  --destructive-foreground: #1a0000;
+  --success: #34d399;
+  --warning: #fbbf24;
+  --border: #1d2742;
+  --input: #1d2742;
+  --ring: var(--brand-primary);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --font-sans: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-display), var(--font-sans), sans-serif;
+  --font-mono: var(--font-mono), ui-monospace, monospace;
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 6px);
+  --radius-2xl: calc(var(--radius) + 12px);
+
+  --animate-float: float 6s ease-in-out infinite;
+  --animate-pulse-glow: pulseGlow 2.4s ease-in-out infinite;
+  --animate-shimmer: shimmer 2.5s linear infinite;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+@keyframes pulseGlow {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans), system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1, h2, h3, h4, .font-display {
+    font-family: var(--font-display), var(--font-sans), sans-serif;
+    letter-spacing: -0.02em;
+  }
+  ::selection {
+    background: color-mix(in srgb, var(--brand-primary) 30%, transparent);
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@layer utilities {
+  .text-gradient {
+    background-image: linear-gradient(100deg, var(--brand-primary), var(--brand-secondary) 60%, var(--brand-accent));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .bg-brand-gradient {
+    background-image: linear-gradient(110deg, var(--brand-primary), color-mix(in srgb, var(--brand-secondary) 85%, var(--brand-primary)));
+  }
+  .bg-grid {
+    background-image:
+      linear-gradient(to right, color-mix(in srgb, var(--foreground) 6%, transparent) 1px, transparent 1px),
+      linear-gradient(to bottom, color-mix(in srgb, var(--foreground) 6%, transparent) 1px, transparent 1px);
+    background-size: 32px 32px;
+  }
+  .bg-dots {
+    background-image: radial-gradient(color-mix(in srgb, var(--foreground) 12%, transparent) 1px, transparent 1px);
+    background-size: 22px 22px;
+  }
+  .glass {
+    background: color-mix(in srgb, var(--card) 72%, transparent);
+    backdrop-filter: blur(14px);
+    border: 1px solid color-mix(in srgb, var(--foreground) 10%, transparent);
+  }
+  .glow {
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--brand-primary) 30%, transparent),
+      0 12px 40px -12px color-mix(in srgb, var(--brand-primary) 55%, transparent);
+  }
+  .card-shadow {
+    box-shadow: 0 1px 2px rgba(13, 18, 36, 0.04), 0 8px 30px -16px rgba(13, 18, 36, 0.18);
+  }
 }
+
+/* Custom scrollbars for a polished studio feel */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--foreground) 22%, transparent) transparent;
+}
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--foreground) 20%, transparent);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--foreground) 32%, transparent); background-clip: content-box; }
