@@ -7,14 +7,17 @@ export function BrandLogo({
   logoUrl,
   href = "/app",
   className,
+  showName = true,
 }: {
   name?: string;
   logoUrl?: string | null;
   href?: string;
   className?: string;
+  /** Hide the wordmark and render the logo mark only (e.g. in the Studio toolbar). */
+  showName?: boolean;
 }) {
   return (
-    <Link href={href} className={cn("group flex items-center gap-2.5", className)}>
+    <Link href={href} aria-label={name} className={cn("group flex items-center gap-2.5", className)}>
       {logoUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={logoUrl} alt={name} className="size-9 rounded-xl object-cover" />
@@ -23,7 +26,7 @@ export function BrandLogo({
           <Cpu className="size-5" />
         </span>
       )}
-      <span className="font-display text-base font-bold leading-none tracking-tight">{name}</span>
+      {showName && <span className="font-display text-base font-bold leading-none tracking-tight">{name}</span>}
     </Link>
   );
 }

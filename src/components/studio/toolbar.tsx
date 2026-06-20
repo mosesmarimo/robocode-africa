@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ArrowLeft, Play, Square, Save, Share2, Undo2, Redo2, Loader2, Maximize2, Minimize2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { BrandLogo } from "@/components/brand-logo";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useStudio } from "@/lib/studio/store";
 import { BOARD_LIST, type BoardId } from "@/lib/domain/boards";
@@ -53,8 +54,9 @@ export function Toolbar({ projectId, onRun, onStop }: { projectId: string; onRun
   return (
     <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border bg-card px-3">
       <Button variant="ghost" size="icon-sm" asChild>
-        <Link href="/app/projects" aria-label="Back"><ArrowLeft className="size-4" /></Link>
+        <Link href="/app/projects" aria-label="Back to projects"><ArrowLeft className="size-4" /></Link>
       </Button>
+      <BrandLogo href="/app" showName={false} className="mr-0.5" />
       <input
         value={title}
         onChange={(e) => setTitle(e.target.value)}
