@@ -19,7 +19,6 @@ await page.click('button:has-text("Validate with AI")');
 // wait for DeepSeek response (up to 60s)
 await page.waitForFunction(() => /Verdict|Issues|failed|configured|reach/i.test(document.body.innerText), { timeout: 60000 }).catch(()=>{});
 await page.waitForTimeout(1500);
-await page.screenshot({ path: "screenshots/41-validate-live.png", fullPage: true });
-const txt = document.body ? "" : "";
+await page.screenshot({ path: "screenshots/42-validate-live.png", fullPage: true });
 console.log("done");
 await browser.close();
