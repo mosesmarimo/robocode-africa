@@ -1,0 +1,25 @@
+import { chromium } from "playwright";
+const BASE = "http://localhost:3000";
+const browser = await chromium.launch();
+const ctx = await browser.newContext({ viewport: { width: 1500, height: 900 }, deviceScaleFactor: 1.25 });
+const page = await ctx.newPage();
+await page.goto(`${BASE}/login`, { waitUntil: "networkidle" });
+await page.fill("#email", "tariro@springfield.robocode.africa");
+await page.fill("#password", "password123");
+await page.click('button:has-text("Sign in")');
+await page.waitForURL("**/app", { timeout: 15000 });
+await page.goto(`${BASE}/app/projects`, { waitUntil: "networkidle" });
+await page.waitForTimeout(400);
+await page.click('a:has-text("My Blinking LED")');
+await page.waitForURL("**/studio/**", { timeout: 15000 });
+await page.waitForTimeout(4500);
+await page.click('button:has-text("Description")');
+await page.waitForTimeout(700);
+await page.click('button:has-text("Validate with AI")');
+// wait for DeepSeek response (up to 60s)
+await page.waitForFunction(() => /Verdict|Issues|failed|configured|reach/i.test(document.body.innerText), { timeout: 60000 }).catch(()=>{});
+await page.waitForTimeout(1500);
+await page.screenshot({ path: "screenshots/41-validate-live.png", fullPage: true });
+const txt = document.body ? "" : "";
+console.log("done");
+await browser.close();

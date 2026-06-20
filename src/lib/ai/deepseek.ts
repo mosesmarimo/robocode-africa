@@ -67,19 +67,24 @@ export async function validateCircuit(input: ValidateInput): Promise<ValidateRes
       ]
     : user;
 
-  try {
-    const res = await fetch(ENDPOINT, {
+  const doFetch = (content: unknown) =>
+    fetch(ENDPOINT, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
       body: JSON.stringify({
         model: MODEL,
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: userContent },
+          { role: "user", content },
         ],
         stream: false,
       }),
     });
+
+  try {
+    let res = await doFetch(userContent);
+    // If the model doesn't accept images, retry with text only so validation still works.
+    if (!res.ok && input.image) res = await doFetch(user);
     if (!res.ok) {
       const detail = await res.text().catch(() => "");
       return { ok: false, configured: true, text: `DeepSeek request failed (HTTP ${res.status}). ${detail.slice(0, 200)}` };
