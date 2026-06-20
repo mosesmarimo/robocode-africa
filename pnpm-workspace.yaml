@@ -1,0 +1,4 @@
+packages:
+  - "robocode-frontend"
+  - "robocode-backend"
+# robocode-mobile is a Flutter (Dart/pub) project and is managed separately.

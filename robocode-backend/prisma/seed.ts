@@ -10,6 +10,7 @@ const PW = bcrypt.hashSync("password123", 10);
 let _dsKey: string | null | undefined;
 function deepseekKey(): string | null {
   if (_dsKey !== undefined) return _dsKey;
+  if (process.env.DEEPSEEK_API_KEY) return (_dsKey = process.env.DEEPSEEK_API_KEY);
   try {
     const env = readFileSync(".env", "utf8");
     const m = env.match(/^DEEPSEEK_API_KEY=(.*)$/m);
