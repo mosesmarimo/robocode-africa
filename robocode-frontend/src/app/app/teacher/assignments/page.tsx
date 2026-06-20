@@ -1,46 +1,49 @@
-import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ClipboardList, CalendarDays, BookOpen, ArrowRight } from "lucide-react";
-import { getCurrentUser, getPageUser } from "@/lib/auth/current-user";
-import { can } from "@/lib/domain/roles";
-import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { StatCard } from "@/components/app/stat-card";
 import { CreateAssignmentDialog } from "@/components/teacher/teacher-buttons";
 import { formatRelative } from "@/lib/utils";
+import { apiGet } from "@/lib/api/client";
 
 export const metadata = { title: "Assignments" };
 
+interface ClassOption {
+  id: string;
+  name: string;
+}
+
+interface TaskOption {
+  id: string;
+  title: string;
+  difficulty: string;
+}
+
+interface AssignmentItem {
+  id: string;
+  title: string;
+  classId: string;
+  instructions: string | null;
+  taskId: string | null;
+  dueAt: string | null;
+  createdAt: string;
+  class: ClassOption;
+  task: TaskOption | null;
+}
+
+interface AssignmentsResponse {
+  classes: ClassOption[];
+  assignments: AssignmentItem[];
+  tasks: TaskOption[];
+  upcomingCount: number;
+  withTaskCount: number;
+}
+
 export default async function TeacherAssignmentsPage() {
-  const user = (await getPageUser());
-  if (!can(user.role, "class.manage")) notFound();
-
-  const [classes, assignments, tasks] = await Promise.all([
-    prisma.class.findMany({
-      where: { teacherId: user.id, tenantId: user.tenantId },
-      select: { id: true, name: true },
-      orderBy: { name: "asc" },
-    }),
-    prisma.assignment.findMany({
-      where: {
-        class: { teacherId: user.id, tenantId: user.tenantId },
-      },
-      include: {
-        class: { select: { id: true, name: true } },
-        task: { select: { id: true, title: true, difficulty: true } },
-      },
-      orderBy: { createdAt: "desc" },
-    }),
-    prisma.task.findMany({
-      orderBy: { title: "asc" },
-      select: { id: true, title: true, difficulty: true },
-    }),
-  ]);
-
-  const upcomingCount = assignments.filter((a) => a.dueAt && new Date(a.dueAt) > new Date()).length;
-  const withTaskCount = assignments.filter((a) => a.taskId !== null).length;
+  const { classes, assignments, tasks, upcomingCount, withTaskCount } =
+    await apiGet<AssignmentsResponse>("/teacher/assignments");
 
   const difficultyVariant: Record<string, "success" | "warning" | "destructive"> = {
     beginner: "success",

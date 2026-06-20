@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth/current-user";
-import { prisma } from "@/lib/prisma";
+import { apiGetOrNull } from "@/lib/api/client";
 import { brandFromTenant } from "@/lib/tenant";
 import { BrandStyle } from "@/components/brand-style";
 import { Sidebar } from "@/components/app/sidebar";
@@ -13,7 +13,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   const brand = brandFromTenant(user.tenant?.branding);
   const brandName = user.tenant?.name ?? "RoboCode.Africa";
-  const unread = await prisma.notification.count({ where: { userId: user.id, readAt: null } });
+  const shell = await apiGetOrNull<{ unread: number }>("/shell");
+  const unread = shell?.unread ?? 0;
 
   return (
     <div className="flex min-h-screen">

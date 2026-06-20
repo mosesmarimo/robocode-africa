@@ -1,8 +1,6 @@
 import { notFound } from "next/navigation";
 import { Globe, Check, Clock, AlertCircle, Copy, ExternalLink } from "lucide-react";
-import { getCurrentUser, getPageUser } from "@/lib/auth/current-user";
-import { can } from "@/lib/domain/roles";
-import { prisma } from "@/lib/prisma";
+import { apiGet, ApiError } from "@/lib/api/client";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -10,22 +8,32 @@ import { ROOT_DOMAIN } from "@/lib/domain/constants";
 
 export const metadata = { title: "Domain Settings" };
 
+interface DomainRecord {
+  id: string;
+  hostname: string;
+  type: string;
+  verified: boolean;
+  txtToken: string | null;
+  sslStatus: string;
+  createdAt: string;
+}
+
+interface DomainData {
+  tenant: { id: string; slug: string; name: string };
+  subdomain: string;
+  domains: DomainRecord[];
+  customDomain: DomainRecord | null;
+}
+
 export default async function DomainPage() {
-  const user = (await getPageUser());
-  if (!can(user.role, "tenant.manage")) notFound();
-
-  const [tenant, domains] = await Promise.all([
-    prisma.tenant.findUnique({ where: { id: user.tenantId } }),
-    prisma.domain.findMany({
-      where: { tenantId: user.tenantId },
-      orderBy: { createdAt: "asc" },
-    }),
-  ]);
-
-  if (!tenant) notFound();
-
-  const subdomain = `${tenant.slug}.${ROOT_DOMAIN}`;
-  const customDomain = domains.find((d) => d.type === "custom");
+  let data: DomainData;
+  try {
+    data = await apiGet<DomainData>("/school/domain");
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) notFound();
+    throw e;
+  }
+  const { subdomain, customDomain } = data;
 
   return (
     <div className="space-y-6">

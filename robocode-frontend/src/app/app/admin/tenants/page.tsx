@@ -1,8 +1,8 @@
 import { notFound } from "next/navigation";
 import { Building2, Users, Clock } from "lucide-react";
-import { getCurrentUser, getPageUser } from "@/lib/auth/current-user";
+import { getPageUser } from "@/lib/auth/current-user";
 import { can } from "@/lib/domain/roles";
-import { prisma } from "@/lib/prisma";
+import { apiGet } from "@/lib/api/client";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { StatCard } from "@/components/app/stat-card";
@@ -22,18 +22,21 @@ const statusVariant: Record<string, "success" | "warning" | "destructive" | "mut
   suspended: "destructive",
 };
 
+interface AdminTenant {
+  id: string;
+  name: string;
+  slug: string;
+  status: string;
+  createdAt: string;
+  _count: { users: number };
+  subscription: { plan: { name: string } | null } | null;
+}
+
 export default async function TenantsPage() {
   const user = (await getPageUser());
   if (!can(user.role, "platform.manage")) notFound();
 
-  const tenants = await prisma.tenant.findMany({
-    where: { isPlatform: false },
-    orderBy: { createdAt: "desc" },
-    include: {
-      _count: { select: { users: true } },
-      subscription: { include: { plan: { select: { name: true } } } },
-    },
-  });
+  const tenants = await apiGet<AdminTenant[]>("/admin/tenants");
 
   const total = tenants.length;
   const active = tenants.filter((t) => t.status === "active").length;

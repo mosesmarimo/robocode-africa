@@ -1,53 +1,44 @@
 import { Users, Zap, Plus } from "lucide-react";
-import { getCurrentUser, getPageUser } from "@/lib/auth/current-user";
-import { isStaff } from "@/lib/domain/roles";
-import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { StatCard } from "@/components/app/stat-card";
 import { CreateTeamDialog, JoinButton } from "@/components/teams/team-actions";
 import { initials } from "@/lib/utils";
+import { apiGet } from "@/lib/api/client";
 import Link from "next/link";
 
 export const metadata = { title: "Teams" };
 
+interface TeamCaptain {
+  id: string;
+  displayName: string;
+}
+
+interface BrowseTeam {
+  id: string;
+  name: string;
+  description: string | null;
+  roboPoints: number;
+  _count: { members: number };
+  captain: TeamCaptain;
+}
+
+interface MyMembership {
+  id: string;
+  role: string;
+  status: string;
+  team: BrowseTeam;
+}
+
+interface TeamsResponse {
+  myMemberships: MyMembership[];
+  browseTeams: BrowseTeam[];
+  totalPoints: number;
+}
+
 export default async function TeamsPage() {
-  const user = (await getPageUser());
-  const platform = isStaff(user.role) && (user.role === "super_admin" || user.role === "moderator");
-  const tenantFilter = platform ? {} : { tenantId: user.tenantId };
-
-  // Fetch teams the user is a member of
-  const myMemberships = await prisma.teamMember.findMany({
-    where: { userId: user.id, status: "active" },
-    include: {
-      team: {
-        include: {
-          _count: { select: { members: { where: { status: "active" } } } },
-          captain: { select: { id: true, displayName: true } },
-        },
-      },
-    },
-    orderBy: { id: "desc" },
-  });
-
-  const myTeamIds = myMemberships.map((m) => m.team.id);
-
-  // Browse: other teams in the tenant (not already a member)
-  const browseTeams = await prisma.team.findMany({
-    where: {
-      ...tenantFilter,
-      id: { notIn: myTeamIds },
-    },
-    include: {
-      _count: { select: { members: { where: { status: "active" } } } },
-      captain: { select: { id: true, displayName: true } },
-    },
-    orderBy: { roboPoints: "desc" },
-    take: 20,
-  });
-
-  const totalPoints = myMemberships.reduce((sum, m) => sum + m.team.roboPoints, 0);
+  const { myMemberships, browseTeams, totalPoints } = await apiGet<TeamsResponse>("/teams");
 
   return (
     <div className="space-y-8">

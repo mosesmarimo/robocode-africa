@@ -1,8 +1,7 @@
-import { notFound } from "next/navigation";
 import { Users, GraduationCap, UserCheck } from "lucide-react";
-import { getCurrentUser, getPageUser } from "@/lib/auth/current-user";
-import { can, ROLE_LABELS } from "@/lib/domain/roles";
-import { prisma } from "@/lib/prisma";
+import { getPageUser } from "@/lib/auth/current-user";
+import { ROLE_LABELS } from "@/lib/domain/roles";
+import { apiGet } from "@/lib/api/client";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -20,30 +19,30 @@ const STATUS_BADGE: Record<string, "success" | "warning" | "destructive" | "mute
   rejected: "muted",
 };
 
+interface Member {
+  id: string;
+  displayName: string;
+  email: string;
+  role: string;
+  status: string;
+  roboPoints: number;
+  level: number;
+  createdAt: string;
+}
+
+interface MembersData {
+  students: Member[];
+  teachers: Member[];
+  activeCount: number;
+  pendingCount: number;
+  suspendedCount: number;
+}
+
 export default async function MembersPage() {
   const user = (await getPageUser());
-  if (!can(user.role, "tenant.manage")) notFound();
 
-  const [students, teachers, counts] = await Promise.all([
-    prisma.user.findMany({
-      where: { tenantId: user.tenantId, role: "student" },
-      orderBy: [{ status: "asc" }, { displayName: "asc" }],
-    }),
-    prisma.user.findMany({
-      where: { tenantId: user.tenantId, role: "teacher" },
-      orderBy: { displayName: "asc" },
-    }),
-    prisma.user.groupBy({
-      by: ["status"],
-      where: { tenantId: user.tenantId, role: "student" },
-      _count: { _all: true },
-    }),
-  ]);
-
-  const countMap = Object.fromEntries(counts.map((c) => [c.status, c._count._all]));
-  const activeCount = countMap["active"] ?? 0;
-  const pendingCount = countMap["pending"] ?? 0;
-  const suspendedCount = countMap["suspended"] ?? 0;
+  const { students, teachers, activeCount, pendingCount, suspendedCount } =
+    await apiGet<MembersData>("/school/members");
 
   return (
     <div className="space-y-6">
@@ -186,7 +185,7 @@ function MemberRow({
   status: string;
   points: number;
   level: number;
-  joinedAt: Date;
+  joinedAt: string;
   showActions: boolean;
 }) {
   return (

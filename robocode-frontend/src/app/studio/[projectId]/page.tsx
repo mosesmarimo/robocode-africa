@@ -1,12 +1,31 @@
 import { notFound } from "next/navigation";
-import { prisma } from "@/lib/prisma";
+import { apiGet, apiGetOrNull, ApiError } from "@/lib/api/client";
 import { getPageUser } from "@/lib/auth/current-user";
-import { isStaff } from "@/lib/domain/roles";
 import { getBoard } from "@/lib/domain/boards";
 import { emptyDiagram, type Diagram } from "@/lib/domain/diagram";
 import { generateReadme } from "@/lib/studio/readme";
 import { StudioClient } from "@/components/studio/studio-client";
 import type { StudioFile } from "@/lib/studio/store";
+
+interface StudioTask {
+  title: string;
+  boardType: string | null;
+  starterDiagram: unknown;
+  starterCode: string | null;
+}
+
+interface StudioCodeFile {
+  filename: string;
+  content: string;
+}
+
+interface StudioProject {
+  id: string;
+  title: string;
+  boardType: string;
+  diagram: unknown;
+  codeFiles: StudioCodeFile[];
+}
 
 function langFor(name: string): string {
   if (name.endsWith(".ino")) return "arduino";
@@ -35,7 +54,7 @@ export default async function StudioPage({
   searchParams: Promise<{ task?: string }>;
 }) {
   const [{ projectId }, { task: taskSlug }] = await Promise.all([params, searchParams]);
-  const user = await getPageUser();
+  await getPageUser();
 
   if (projectId === "new") {
     let title = "Untitled Project";
@@ -43,7 +62,8 @@ export default async function StudioPage({
     let diagram = emptyDiagram("arduino-uno");
     let starter = getBoard("arduino-uno").starterCode;
     if (taskSlug) {
-      const task = await prisma.task.findUnique({ where: { slug: taskSlug } });
+      const data = await apiGetOrNull<{ task: StudioTask }>(`/challenges/${taskSlug}`);
+      const task = data?.task;
       if (task) {
         title = `Challenge: ${task.title}`;
         boardId = task.boardType ?? "arduino-uno";
@@ -58,14 +78,14 @@ export default async function StudioPage({
     );
   }
 
-  const project = await prisma.project.findUnique({ where: { id: projectId }, include: { codeFiles: true } });
-  if (!project) notFound();
-
-  const owner = project.ownerId === user.id;
-  const staffSameTenant = isStaff(user.role) && project.tenantId === user.tenantId;
-  const sharedInTenant = project.visibility !== "private" && project.tenantId === user.tenantId;
-  const isPublic = project.visibility === "public";
-  if (!(owner || staffSameTenant || sharedInTenant || isPublic)) notFound();
+  let project: StudioProject;
+  try {
+    const data = await apiGet<{ project: StudioProject }>(`/projects/${projectId}`);
+    project = data.project;
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) notFound();
+    throw e;
+  }
 
   const board = getBoard(project.boardType);
   const diagram = (project.diagram as unknown as Diagram) ?? emptyDiagram(project.boardType);

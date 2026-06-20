@@ -1,12 +1,26 @@
 import { Bell, Award, TrendingUp, UserCheck, Info } from "lucide-react";
-import { getCurrentUser, getPageUser } from "@/lib/auth/current-user";
-import { prisma } from "@/lib/prisma";
+import { getPageUser } from "@/lib/auth/current-user";
+import { apiGet } from "@/lib/api/client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn, formatRelative } from "@/lib/utils";
 import { MarkAllReadButton } from "@/components/notifications/notif-actions";
 
 export const metadata = { title: "Notifications" };
+
+interface Notification {
+  id: string;
+  type: string;
+  title: string;
+  body: string | null;
+  readAt: string | null;
+  createdAt: string;
+}
+
+interface NotificationsResponse {
+  notifications: Notification[];
+  unreadCount: number;
+}
 
 function notifIcon(type: string) {
   switch (type) {
@@ -35,14 +49,9 @@ function notifIconTone(type: string) {
 }
 
 export default async function NotificationsPage() {
-  const user = (await getPageUser());
+  await getPageUser();
 
-  const notifications = await prisma.notification.findMany({
-    where: { userId: user.id },
-    orderBy: { createdAt: "desc" },
-  });
-
-  const unreadCount = notifications.filter((n) => !n.readAt).length;
+  const { notifications, unreadCount } = await apiGet<NotificationsResponse>("/notifications");
 
   return (
     <div className="space-y-6">

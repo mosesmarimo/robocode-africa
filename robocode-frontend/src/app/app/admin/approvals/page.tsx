@@ -1,8 +1,8 @@
 import { notFound } from "next/navigation";
 import { UserCheck, Building2, Clock, User } from "lucide-react";
-import { getCurrentUser, getPageUser } from "@/lib/auth/current-user";
+import { getPageUser } from "@/lib/auth/current-user";
 import { can } from "@/lib/domain/roles";
-import { prisma } from "@/lib/prisma";
+import { apiGet } from "@/lib/api/client";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -16,24 +16,31 @@ import {
 
 export const metadata = { title: "Approvals — Admin" };
 
+interface PendingRequest {
+  id: string;
+  type: string;
+  createdAt: string;
+  user: { id: string; displayName: string; email: string; role: string; createdAt: string };
+  tenant: { id: string; name: string; slug: string };
+}
+
+interface PendingTenant {
+  id: string;
+  name: string;
+  slug: string;
+  createdAt: string;
+}
+
+interface ApprovalsResponse {
+  pendingRequests: PendingRequest[];
+  pendingTenants: PendingTenant[];
+}
+
 export default async function ApprovalsPage() {
   const user = (await getPageUser());
   if (!can(user.role, "platform.manage") && !can(user.role, "moderation.manage")) notFound();
 
-  const [pendingRequests, pendingTenants] = await Promise.all([
-    prisma.approvalRequest.findMany({
-      where: { status: "pending" },
-      include: {
-        user: { select: { id: true, displayName: true, email: true, role: true, createdAt: true } },
-        tenant: { select: { id: true, name: true, slug: true } },
-      },
-      orderBy: { createdAt: "asc" },
-    }),
-    prisma.tenant.findMany({
-      where: { status: "pending", isPlatform: false },
-      orderBy: { createdAt: "asc" },
-    }),
-  ]);
+  const { pendingRequests, pendingTenants } = await apiGet<ApprovalsResponse>("/admin/approvals");
 
   const typeLabel: Record<string, string> = {
     student_direct: "Student (direct)",

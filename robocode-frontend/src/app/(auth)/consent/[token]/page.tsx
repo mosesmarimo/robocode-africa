@@ -1,27 +1,43 @@
 import Link from "next/link";
-import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
+import { redirect } from "next/navigation";
 import { ShieldCheck, CircleCheck } from "lucide-react";
-import { prisma } from "@/lib/prisma";
+import { apiPublic, ApiError } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
+
+interface ConsentResult {
+  ok: boolean;
+  status: string;
+  studentName: string;
+}
 
 async function grantConsent(formData: FormData) {
   "use server";
   const token = String(formData.get("token"));
-  const consent = await prisma.consentRecord.findUnique({ where: { token } });
-  if (consent && consent.status !== "granted") {
-    await prisma.consentRecord.update({
-      where: { token },
-      data: { status: "granted", grantedAt: new Date() },
-    });
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host") ?? "";
+  const tenant = h.get("x-tenant") ?? undefined;
+  let result: ConsentResult;
+  try {
+    result = await apiPublic<ConsentResult>(`/consent/${token}`, {}, host, tenant);
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) redirect(`/consent/${token}?state=invalid`);
+    throw e;
   }
-  revalidatePath(`/consent/${token}`);
+  redirect(`/consent/${token}?state=granted&name=${encodeURIComponent(result.studentName)}`);
 }
 
-export default async function ConsentPage({ params }: { params: Promise<{ token: string }> }) {
+export default async function ConsentPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ token: string }>;
+  searchParams: Promise<{ state?: string; name?: string }>;
+}) {
   const { token } = await params;
-  const consent = await prisma.consentRecord.findUnique({ where: { token }, include: { user: true } });
+  const { state, name } = await searchParams;
 
-  if (!consent) {
+  if (state === "invalid") {
     return (
       <div className="text-center">
         <h1 className="font-display text-2xl font-bold">Link not found</h1>
@@ -31,14 +47,14 @@ export default async function ConsentPage({ params }: { params: Promise<{ token:
     );
   }
 
-  if (consent.status === "granted") {
+  if (state === "granted") {
     return (
       <div className="text-center">
         <span className="mx-auto grid size-16 place-items-center rounded-2xl bg-success/15 text-success">
           <CircleCheck className="size-8" />
         </span>
         <h1 className="mt-6 font-display text-2xl font-bold">Consent confirmed</h1>
-        <p className="mt-2 text-muted-foreground">Thank you. {consent.user.displayName}&apos;s account can now be approved by an administrator.</p>
+        <p className="mt-2 text-muted-foreground">Thank you. {name}&apos;s account can now be approved by an administrator.</p>
       </div>
     );
   }
@@ -50,7 +66,7 @@ export default async function ConsentPage({ params }: { params: Promise<{ token:
       </span>
       <h1 className="mt-6 font-display text-2xl font-bold">Parental consent</h1>
       <p className="mx-auto mt-3 max-w-sm text-muted-foreground">
-        <b className="text-foreground">{consent.user.displayName}</b> would like to join RoboCode.Africa, a safe learning
+        Your child would like to join RoboCode.Africa, a safe learning
         platform for robotics, coding and AI. As their parent or guardian, please confirm your consent.
       </p>
       <form action={grantConsent} className="mt-8">

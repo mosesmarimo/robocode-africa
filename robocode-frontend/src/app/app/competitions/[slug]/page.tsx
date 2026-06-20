@@ -9,8 +9,8 @@ import {
   ListChecks,
   Users,
 } from "lucide-react";
-import { getCurrentUser, getPageUser } from "@/lib/auth/current-user";
-import { prisma } from "@/lib/prisma";
+import { getPageUser } from "@/lib/auth/current-user";
+import { apiGet, ApiError } from "@/lib/api/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -20,6 +20,42 @@ import { TRACK_LABELS } from "@/lib/domain/constants";
 import { initials } from "@/lib/utils";
 
 export const metadata = { title: "Competition" };
+
+interface CompetitionRound {
+  id: string;
+  name: string;
+  startsAt: string | null;
+  endsAt: string | null;
+}
+
+interface CompetitionEntry {
+  id: string;
+  userId: string | null;
+  totalScore: number;
+  team: { id: string; name: string; avatarSeed: string | null } | null;
+}
+
+interface CompetitionDetail {
+  id: string;
+  slug: string;
+  title: string;
+  description: string | null;
+  type: string;
+  scope: string;
+  status: string;
+  startsAt: string | null;
+  endsAt: string | null;
+  tenantId: string | null;
+  rules: { items?: string[] } | null;
+  rounds: CompetitionRound[];
+  entries: CompetitionEntry[];
+}
+
+interface CompetitionDetailResponse {
+  competition: CompetitionDetail;
+  hasEntered: boolean;
+  canEnter: boolean;
+}
 
 const SCOPE_LABEL: Record<string, string> = {
   intra_school: "Intra-school",
@@ -33,9 +69,9 @@ const SCOPE_ICON: Record<string, React.ElementType> = {
   global: Globe,
 };
 
-function formatDate(d: Date | null): string {
+function formatDate(d: string | null): string {
   if (!d) return "TBC";
-  return d.toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" });
+  return new Date(d).toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" });
 }
 
 export default async function CompetitionDetailPage({
@@ -45,34 +81,16 @@ export default async function CompetitionDetailPage({
 }) {
   const { slug } = await params;
   const user = (await getPageUser());
-  const isPlatformStaff = user.role === "super_admin" || user.role === "moderator";
 
-  const competition = await prisma.competition.findUnique({
-    where: { slug },
-    include: {
-      rounds: { orderBy: { order: "asc" } },
-      entries: {
-        orderBy: { totalScore: "desc" },
-        include: {
-          team: { select: { id: true, name: true, avatarSeed: true } },
-        },
-      },
-    },
-  });
-
-  if (!competition) notFound();
-
-  // Scope guard: non-platform-staff can only see global or their school's competitions
-  if (!isPlatformStaff) {
-    if (competition.tenantId !== null && competition.tenantId !== user.tenantId) {
-      notFound();
-    }
+  let data: CompetitionDetailResponse;
+  try {
+    data = await apiGet<CompetitionDetailResponse>(`/competitions/${slug}`);
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) notFound();
+    throw e;
   }
 
-  // Check if the current user already has their own entry
-  const hasEntered = competition.entries.some((e) => e.userId === user.id);
-  const canEnter =
-    !hasEntered && (competition.status === "live" || competition.status === "upcoming");
+  const { competition, hasEntered, canEnter } = data;
 
   const trackLabel =
     TRACK_LABELS[competition.type as keyof typeof TRACK_LABELS] ?? competition.type;

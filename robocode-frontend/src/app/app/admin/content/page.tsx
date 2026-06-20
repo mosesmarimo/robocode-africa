@@ -1,8 +1,8 @@
 import { notFound } from "next/navigation";
 import { BookOpen, ListChecks, ArrowRight } from "lucide-react";
-import { getCurrentUser, getPageUser } from "@/lib/auth/current-user";
+import { getPageUser } from "@/lib/auth/current-user";
 import { can } from "@/lib/domain/roles";
-import { prisma } from "@/lib/prisma";
+import { apiGet } from "@/lib/api/client";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { StatCard } from "@/components/app/stat-card";
@@ -17,27 +17,38 @@ const difficultyVariant: Record<string, "success" | "warning" | "destructive"> =
   advanced: "destructive",
 };
 
+interface AdminCourse {
+  id: string;
+  title: string;
+  track: string;
+  level: string;
+  published: boolean;
+  _count: { lessons: number; enrollments: number };
+}
+
+interface AdminTask {
+  id: string;
+  title: string;
+  track: string;
+  difficulty: string;
+  points: number;
+  _count: { submissions: number };
+}
+
+interface ContentResponse {
+  courses: AdminCourse[];
+  tasks: AdminTask[];
+  totalLessons: number;
+  totalEnrollments: number;
+  totalSubmissions: number;
+}
+
 export default async function ContentPage() {
   const user = (await getPageUser());
   if (!can(user.role, "platform.manage")) notFound();
 
-  const [courses, tasks, totalLessons, totalEnrollments, totalSubmissions] = await Promise.all([
-    prisma.course.findMany({
-      orderBy: [{ track: "asc" }, { order: "asc" }],
-      include: {
-        _count: { select: { lessons: true, enrollments: true } },
-      },
-    }),
-    prisma.task.findMany({
-      orderBy: { track: "asc" },
-      include: {
-        _count: { select: { submissions: true } },
-      },
-    }),
-    prisma.lesson.count(),
-    prisma.enrollment.count(),
-    prisma.submission.count(),
-  ]);
+  const { courses, tasks, totalLessons, totalEnrollments, totalSubmissions } =
+    await apiGet<ContentResponse>("/admin/content");
 
   const publishedCourses = courses.filter((c) => c.published).length;
   const draftCourses = courses.length - publishedCourses;

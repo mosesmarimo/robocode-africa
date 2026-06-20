@@ -1,9 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { Users, ClipboardList, Key, CalendarDays, ArrowLeft } from "lucide-react";
-import { getCurrentUser, getPageUser } from "@/lib/auth/current-user";
-import { can } from "@/lib/domain/roles";
-import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,8 +8,43 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { AddStudentDialog, CreateAssignmentDialog } from "@/components/teacher/teacher-buttons";
 import { initials, formatRelative } from "@/lib/utils";
+import { apiGet, ApiError } from "@/lib/api/client";
 
 export const metadata = { title: "Class Detail" };
+
+interface TaskOption {
+  id: string;
+  title: string;
+  difficulty: string;
+}
+
+interface ClassMember {
+  id: string;
+  role: string;
+  user: { id: string; displayName: string; email: string };
+}
+
+interface ClassAssignment {
+  id: string;
+  title: string;
+  instructions: string | null;
+  dueAt: string | null;
+  createdAt: string;
+  task: TaskOption | null;
+}
+
+interface ClassDetail {
+  id: string;
+  name: string;
+  joinCode: string;
+  members: ClassMember[];
+  assignments: ClassAssignment[];
+}
+
+interface ClassDetailResponse {
+  cls: ClassDetail;
+  tasks: TaskOption[];
+}
 
 export default async function ClassDetailPage({
   params,
@@ -20,30 +52,15 @@ export default async function ClassDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const user = (await getPageUser());
-  if (!can(user.role, "class.manage")) notFound();
 
-  const [cls, tasks] = await Promise.all([
-    prisma.class.findFirst({
-      where: { id, tenantId: user.tenantId, teacherId: user.id },
-      include: {
-        members: {
-          include: { user: true },
-          orderBy: { id: "asc" },
-        },
-        assignments: {
-          include: { task: { select: { id: true, title: true, difficulty: true } } },
-          orderBy: { createdAt: "desc" },
-        },
-      },
-    }),
-    prisma.task.findMany({
-      orderBy: { title: "asc" },
-      select: { id: true, title: true, difficulty: true },
-    }),
-  ]);
-
-  if (!cls) notFound();
+  let cls: ClassDetail;
+  let tasks: TaskOption[];
+  try {
+    ({ cls, tasks } = await apiGet<ClassDetailResponse>(`/teacher/classes/${id}`));
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) notFound();
+    throw e;
+  }
 
   const difficultyVariant: Record<string, "success" | "warning" | "destructive"> = {
     beginner: "success",

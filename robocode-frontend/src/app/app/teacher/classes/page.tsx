@@ -1,32 +1,31 @@
-import { notFound } from "next/navigation";
 import Link from "next/link";
 import { Users, Key, ArrowRight, BookOpen } from "lucide-react";
-import { getCurrentUser, getPageUser } from "@/lib/auth/current-user";
-import { can } from "@/lib/domain/roles";
-import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { StatCard } from "@/components/app/stat-card";
 import { CreateClassDialog } from "@/components/teacher/teacher-buttons";
 import { formatRelative } from "@/lib/utils";
+import { apiGet } from "@/lib/api/client";
 
 export const metadata = { title: "My Classes" };
 
+interface ClassListItem {
+  id: string;
+  name: string;
+  joinCode: string;
+  createdAt: string;
+  _count: { members: number; assignments: number };
+}
+
+interface ClassesResponse {
+  classes: ClassListItem[];
+  totalStudents: number;
+  totalAssignments: number;
+}
+
 export default async function TeacherClassesPage() {
-  const user = (await getPageUser());
-  if (!can(user.role, "class.manage")) notFound();
-
-  const classes = await prisma.class.findMany({
-    where: { teacherId: user.id, tenantId: user.tenantId },
-    orderBy: { createdAt: "desc" },
-    include: {
-      _count: { select: { members: true, assignments: true } },
-    },
-  });
-
-  const totalStudents = classes.reduce((sum, c) => sum + c._count.members, 0);
-  const totalAssignments = classes.reduce((sum, c) => sum + c._count.assignments, 0);
+  const { classes, totalStudents, totalAssignments } = await apiGet<ClassesResponse>("/teacher/classes");
 
   return (
     <div className="space-y-6">

@@ -1,34 +1,30 @@
 import { notFound } from "next/navigation";
 import { Palette } from "lucide-react";
-import { getCurrentUser, getPageUser } from "@/lib/auth/current-user";
-import { can } from "@/lib/domain/roles";
-import { prisma } from "@/lib/prisma";
+import { apiGet, ApiError } from "@/lib/api/client";
 import { BrandingForm } from "@/components/school/branding-form";
 
 export const metadata = { title: "School Branding" };
 
+interface BrandingData {
+  schoolName: string;
+  initial: {
+    primary: string;
+    secondary: string;
+    accent: string;
+    tagline: string;
+    logoUrl: string;
+  };
+}
+
 export default async function BrandingPage() {
-  const user = (await getPageUser());
-  if (!can(user.role, "tenant.manage")) notFound();
-
-  const tenant = await prisma.tenant.findUnique({ where: { id: user.tenantId } });
-  if (!tenant) notFound();
-
-  const branding = (tenant.branding ?? {}) as {
-    primary?: string;
-    secondary?: string;
-    accent?: string;
-    tagline?: string;
-    logoUrl?: string;
-  };
-
-  const initial = {
-    primary: branding.primary ?? "#6d28d9",
-    secondary: branding.secondary ?? "#0ea5e9",
-    accent: branding.accent ?? "#f59e0b",
-    tagline: branding.tagline ?? "",
-    logoUrl: branding.logoUrl ?? "",
-  };
+  let data: BrandingData;
+  try {
+    data = await apiGet<BrandingData>("/school/branding");
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) notFound();
+    throw e;
+  }
+  const { schoolName, initial } = data;
 
   return (
     <div className="space-y-6">
@@ -45,7 +41,7 @@ export default async function BrandingPage() {
         </span>
       </div>
 
-      <BrandingForm schoolName={tenant.name} initial={initial} />
+      <BrandingForm schoolName={schoolName} initial={initial} />
     </div>
   );
 }

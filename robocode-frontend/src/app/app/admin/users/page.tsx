@@ -1,9 +1,8 @@
 import { notFound } from "next/navigation";
 import { Users, Search } from "lucide-react";
-import { getCurrentUser, getPageUser } from "@/lib/auth/current-user";
+import { getPageUser } from "@/lib/auth/current-user";
 import { can, ROLE_LABELS, type Role } from "@/lib/domain/roles";
-import { prisma } from "@/lib/prisma";
-import type { Prisma } from "@prisma/client";
+import { apiGet } from "@/lib/api/client";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -21,6 +20,27 @@ const statusVariant: Record<string, "success" | "warning" | "destructive" | "mut
   rejected: "muted",
 };
 
+interface AdminUser {
+  id: string;
+  displayName: string;
+  email: string;
+  role: string;
+  status: string;
+  roboPoints: number;
+  level: number;
+  createdAt: string;
+  lastLoginAt: string | null;
+  tenant: { name: string; slug: string } | null;
+}
+
+interface UsersResponse {
+  users: AdminUser[];
+  totalUsers: number;
+  activeUsers: number;
+  pendingUsers: number;
+  suspendedUsers: number;
+}
+
 export default async function UsersPage({
   searchParams,
 }: {
@@ -31,45 +51,14 @@ export default async function UsersPage({
 
   const { q, role, status } = await searchParams;
 
-  // When a specific role filter is applied, use it; otherwise exclude platform staff.
-  const roleFilter: Prisma.UserWhereInput["role"] = role
-    ? role
-    : { notIn: ["super_admin", "moderator"] };
+  const params = new URLSearchParams();
+  if (q) params.set("q", q);
+  if (role) params.set("role", role);
+  if (status) params.set("status", status);
+  const qs = params.toString();
 
-  const where: Prisma.UserWhereInput = {
-    role: roleFilter,
-    ...(q ? {
-      OR: [
-        { displayName: { contains: q } },
-        { email: { contains: q } },
-      ],
-    } : {}),
-    ...(status ? { status } : {}),
-  };
-
-  const [users, totalUsers, activeUsers, pendingUsers, suspendedUsers] = await Promise.all([
-    prisma.user.findMany({
-      where,
-      orderBy: { createdAt: "desc" },
-      take: 100,
-      select: {
-        id: true,
-        displayName: true,
-        email: true,
-        role: true,
-        status: true,
-        roboPoints: true,
-        level: true,
-        createdAt: true,
-        lastLoginAt: true,
-        tenant: { select: { name: true, slug: true } },
-      },
-    }),
-    prisma.user.count({ where: { role: { notIn: ["super_admin", "moderator"] } } }),
-    prisma.user.count({ where: { role: { notIn: ["super_admin", "moderator"] }, status: "active" } }),
-    prisma.user.count({ where: { role: { notIn: ["super_admin", "moderator"] }, status: "pending" } }),
-    prisma.user.count({ where: { role: { notIn: ["super_admin", "moderator"] }, status: "suspended" } }),
-  ]);
+  const { users, totalUsers, activeUsers, pendingUsers, suspendedUsers } =
+    await apiGet<UsersResponse>(`/admin/users${qs ? `?${qs}` : ""}`);
 
   return (
     <div className="space-y-6">

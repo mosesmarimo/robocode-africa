@@ -1,9 +1,8 @@
 import Link from "next/link";
 import { ArrowRight, Cpu, Trophy, Award, CheckCircle2 } from "lucide-react";
-import { getCurrentUser, getPageUser } from "@/lib/auth/current-user";
-import { prisma } from "@/lib/prisma";
+import { getPageUser } from "@/lib/auth/current-user";
+import { apiGet } from "@/lib/api/client";
 import { ROLE_LABELS, type Role } from "@/lib/domain/roles";
-import { levelProgress } from "@/lib/domain/constants";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,27 +13,40 @@ import { initials, formatRelative } from "@/lib/utils";
 
 export const metadata = { title: "My Profile" };
 
+interface UserBadgeItem {
+  id: string;
+  awardedAt: string;
+  badge: { name: string; description: string };
+}
+
+interface ProjectItem {
+  id: string;
+  title: string;
+  description: string | null;
+  boardType: string;
+  updatedAt: string;
+}
+
+interface ProfileData {
+  user: {
+    displayName: string;
+    role: string;
+    roboPoints: number;
+  };
+  schoolName: string | null;
+  badges: UserBadgeItem[];
+  projects: ProjectItem[];
+  passedCount: number;
+  progress: { level: number; into: number; span: number; pct: number };
+}
+
 export default async function ProfilePage() {
-  const user = (await getPageUser());
+  await getPageUser();
 
-  const [userBadges, projects, passedCount] = await Promise.all([
-    prisma.userBadge.findMany({
-      where: { userId: user.id },
-      include: { badge: true },
-      orderBy: { awardedAt: "desc" },
-    }),
-    prisma.project.findMany({
-      where: { ownerId: user.id },
-      orderBy: { updatedAt: "desc" },
-      take: 6,
-    }),
-    prisma.submission.count({
-      where: { userId: user.id, status: "passed" },
-    }),
-  ]);
+  const { user, schoolName, badges: userBadges, projects, passedCount, progress } =
+    await apiGet<ProfileData>("/account/profile");
 
-  const { level, into, span, pct } = levelProgress(user.roboPoints);
-  const schoolName = user.tenant?.name ?? null;
+  const { level, into, span, pct } = progress;
 
   return (
     <div className="space-y-6">
@@ -102,7 +114,7 @@ export default async function ProfilePage() {
               {userBadges.map((ub) => (
                 <div
                   key={ub.id}
-                  title={`${ub.badge.name} — ${ub.badge.description}\nEarned ${formatRelative(ub.awardedAt)}`}
+                  title={`${ub.badge.name} — ${ub.badge.description}\nEarned ${formatRelative(new Date(ub.awardedAt))}`}
                   className="group flex flex-col items-center gap-1.5 rounded-xl border border-border bg-muted/40 px-4 py-3 text-center transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md"
                 >
                   <span className="grid size-10 place-items-center rounded-full bg-primary/12 text-primary">
@@ -154,7 +166,7 @@ export default async function ProfilePage() {
                   {p.description && (
                     <p className="mt-1.5 line-clamp-2 text-sm text-muted-foreground">{p.description}</p>
                   )}
-                  <p className="mt-3 text-xs text-muted-foreground/70">{formatRelative(p.updatedAt)}</p>
+                  <p className="mt-3 text-xs text-muted-foreground/70">{formatRelative(new Date(p.updatedAt))}</p>
                 </Link>
               ))}
             </div>

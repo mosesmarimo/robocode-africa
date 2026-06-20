@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Plus, Cpu, Clock, LayoutTemplate } from "lucide-react";
-import { getCurrentUser, getPageUser } from "@/lib/auth/current-user";
-import { prisma } from "@/lib/prisma";
+import { getPageUser } from "@/lib/auth/current-user";
+import { apiGet } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -10,15 +10,22 @@ import { formatRelative } from "@/lib/utils";
 
 export const metadata = { title: "Projects" };
 
+interface ProjectSummary {
+  id: string;
+  title: string;
+  description: string | null;
+  boardType: string;
+  updatedAt: string;
+}
+
+interface ProjectsResponse {
+  projects: ProjectSummary[];
+  templates: ProjectSummary[];
+}
+
 export default async function ProjectsPage() {
-  const user = (await getPageUser());
-  const [projects, templates] = await Promise.all([
-    prisma.project.findMany({ where: { ownerId: user.id }, orderBy: { updatedAt: "desc" } }),
-    prisma.project.findMany({
-      where: { isTemplate: true, OR: [{ visibility: "public" }, { tenantId: user.tenantId }] },
-      take: 6,
-    }),
-  ]);
+  await getPageUser();
+  const { projects, templates } = await apiGet<ProjectsResponse>("/projects");
 
   return (
     <div className="space-y-8">

@@ -1,12 +1,11 @@
 import Link from "next/link";
 import { ShieldCheck, Sparkles, Cpu, Trophy } from "lucide-react";
-import { getActiveTenant, brandFromTenant } from "@/lib/tenant";
+import { getBranding } from "@/lib/tenant";
 import { BrandStyle } from "@/components/brand-style";
 import { BrandLogo } from "@/components/brand-logo";
 
 export default async function AuthLayout({ children }: { children: React.ReactNode }) {
-  const tenant = await getActiveTenant();
-  const brand = brandFromTenant(tenant?.branding);
+  const { brand, tenant } = await getBranding();
   const name = tenant?.name ?? "RoboCode.Africa";
 
   return (

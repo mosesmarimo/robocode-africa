@@ -1,8 +1,8 @@
 import { notFound } from "next/navigation";
 import { ShieldAlert, Clock, User } from "lucide-react";
-import { getCurrentUser, getPageUser } from "@/lib/auth/current-user";
+import { getPageUser } from "@/lib/auth/current-user";
 import { can } from "@/lib/domain/roles";
-import { prisma } from "@/lib/prisma";
+import { apiGet } from "@/lib/api/client";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -20,28 +20,30 @@ const statusVariant: Record<string, "warning" | "accent" | "success" | "muted"> 
   dismissed: "muted",
 };
 
+interface ModerationCase {
+  id: string;
+  status: string;
+  targetType: string;
+  targetId: string;
+  reason: string;
+  notes: string | null;
+  createdAt: string;
+  reporter: { id: string; displayName: string } | null;
+}
+
+interface ModerationResponse {
+  openCases: ModerationCase[];
+  reviewingCases: ModerationCase[];
+  resolvedCount: number;
+  dismissedCount: number;
+}
+
 export default async function ModerationPage() {
   const user = (await getPageUser());
   if (!can(user.role, "platform.manage") && !can(user.role, "moderation.manage")) notFound();
 
-  const [openCases, reviewingCases, resolvedCount, dismissedCount] = await Promise.all([
-    prisma.moderationCase.findMany({
-      where: { status: "open" },
-      orderBy: { createdAt: "asc" },
-      include: {
-        reporter: { select: { id: true, displayName: true } },
-      },
-    }),
-    prisma.moderationCase.findMany({
-      where: { status: "reviewing" },
-      orderBy: { createdAt: "asc" },
-      include: {
-        reporter: { select: { id: true, displayName: true } },
-      },
-    }),
-    prisma.moderationCase.count({ where: { status: "resolved" } }),
-    prisma.moderationCase.count({ where: { status: "dismissed" } }),
-  ]);
+  const { openCases, reviewingCases, resolvedCount, dismissedCount } =
+    await apiGet<ModerationResponse>("/admin/moderation");
 
   const allActive = [...openCases, ...reviewingCases];
 

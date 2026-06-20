@@ -1,13 +1,34 @@
 import Link from "next/link";
 import { Trophy, CalendarDays, Users, Globe, School, Building2 } from "lucide-react";
-import { getCurrentUser, getPageUser } from "@/lib/auth/current-user";
-import { prisma } from "@/lib/prisma";
+import { getPageUser } from "@/lib/auth/current-user";
+import { apiGet } from "@/lib/api/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { StatCard } from "@/components/app/stat-card";
 import { TRACK_LABELS } from "@/lib/domain/constants";
 
 export const metadata = { title: "Competitions" };
+
+interface CompetitionListItem {
+  id: string;
+  slug: string;
+  title: string;
+  description: string | null;
+  type: string;
+  scope: string;
+  status: string;
+  startsAt: string | null;
+  endsAt: string | null;
+  _count: { entries: number };
+}
+
+interface CompetitionsResponse {
+  competitions: CompetitionListItem[];
+  grouped: Record<string, CompetitionListItem[]>;
+  liveCount: number;
+  upcomingCount: number;
+  totalEntrants: number;
+}
 
 const SCOPE_LABEL: Record<string, string> = {
   intra_school: "Intra-school",
@@ -21,10 +42,10 @@ const SCOPE_ICON: Record<string, React.ElementType> = {
   global: Globe,
 };
 
-function formatDateRange(startsAt: Date | null, endsAt: Date | null): string {
+function formatDateRange(startsAt: string | null, endsAt: string | null): string {
   if (!startsAt && !endsAt) return "Dates TBC";
-  const fmt = (d: Date) =>
-    d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+  const fmt = (d: string) =>
+    new Date(d).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
   if (startsAt && endsAt) return `${fmt(startsAt)} – ${fmt(endsAt)}`;
   if (startsAt) return `Starts ${fmt(startsAt)}`;
   if (endsAt) return `Ends ${fmt(endsAt)}`;
@@ -32,32 +53,10 @@ function formatDateRange(startsAt: Date | null, endsAt: Date | null): string {
 }
 
 export default async function CompetitionsPage() {
-  const user = (await getPageUser());
-  const isPlatformStaff = user.role === "super_admin" || user.role === "moderator";
+  await getPageUser();
 
-  // Platform staff see all; others see global (tenantId null) + their school's
-  const competitions = await prisma.competition.findMany({
-    where: isPlatformStaff
-      ? {}
-      : { OR: [{ tenantId: null }, { tenantId: user.tenantId }] },
-    include: {
-      _count: { select: { entries: true } },
-    },
-    orderBy: { createdAt: "desc" },
-  });
-
-  // Group by status: live → upcoming → judging → closed
-  const STATUS_ORDER = ["live", "upcoming", "judging", "closed"];
-  const grouped: Record<string, typeof competitions> = {};
-  for (const s of STATUS_ORDER) grouped[s] = [];
-  for (const c of competitions) {
-    const bucket = STATUS_ORDER.includes(c.status) ? c.status : "closed";
-    grouped[bucket].push(c);
-  }
-
-  const liveCount = grouped["live"].length;
-  const upcomingCount = grouped["upcoming"].length;
-  const totalEntrants = competitions.reduce((sum, c) => sum + c._count.entries, 0);
+  const { competitions, grouped, liveCount, upcomingCount, totalEntrants } =
+    await apiGet<CompetitionsResponse>("/competitions");
 
   return (
     <div className="space-y-6">

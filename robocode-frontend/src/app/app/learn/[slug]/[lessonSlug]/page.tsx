@@ -7,8 +7,7 @@ import {
   Clock,
   BookOpen,
 } from "lucide-react";
-import { getCurrentUser, getPageUser } from "@/lib/auth/current-user";
-import { prisma } from "@/lib/prisma";
+import { apiGet, ApiError } from "@/lib/api/client";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -75,59 +74,57 @@ function renderBlock(text: string) {
 
 type BodyBlock = { type: string; text: string };
 
+interface LessonNav {
+  id: string;
+  slug: string;
+  title: string;
+}
+
+interface LessonDetail {
+  id: string;
+  slug: string;
+  title: string;
+  estMinutes: number;
+  body: { blocks?: BodyBlock[] } | null;
+}
+
+interface LessonCourse {
+  id: string;
+  slug: string;
+  title: string;
+  lessons: LessonNav[];
+}
+
+interface LessonResponse {
+  course: LessonCourse;
+  lesson: LessonDetail;
+  lessonIndex: number;
+  prevLesson: LessonNav | null;
+  nextLesson: LessonNav | null;
+  isEnrolled: boolean;
+  isCompleted: boolean;
+}
+
 export default async function LessonPage({
   params,
 }: {
   params: Promise<{ slug: string; lessonSlug: string }>;
 }) {
   const { slug, lessonSlug } = await params;
-  const user = (await getPageUser());
 
-  // Load course + lessons in order
-  const course = await prisma.course.findUnique({
-    where: { slug },
-    include: {
-      lessons: { orderBy: { order: "asc" } },
-    },
-  });
-
-  if (!course || !course.published) notFound();
-
-  // Scope check
-  const isStaffUser =
-    user.role === "super_admin" || user.role === "moderator";
-  if (!isStaffUser && course.tenantId !== null && course.tenantId !== user.tenantId) {
-    notFound();
+  let data: LessonResponse;
+  try {
+    data = await apiGet<LessonResponse>(`/learn/courses/${slug}/lessons/${lessonSlug}`);
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) notFound();
+    throw e;
   }
 
-  const lessonIdx = course.lessons.findIndex((l) => l.slug === lessonSlug);
-  if (lessonIdx === -1) notFound();
-
-  const lesson = course.lessons[lessonIdx];
-  const prevLesson = lessonIdx > 0 ? course.lessons[lessonIdx - 1] : null;
-  const nextLesson =
-    lessonIdx < course.lessons.length - 1
-      ? course.lessons[lessonIdx + 1]
-      : null;
-
-  // Check enrollment + completion status
-  const [enrollment, lessonProgress] = await Promise.all([
-    prisma.enrollment.findUnique({
-      where: { userId_courseId: { userId: user.id, courseId: course.id } },
-      select: { id: true },
-    }),
-    prisma.lessonProgress.findUnique({
-      where: { userId_lessonId: { userId: user.id, lessonId: lesson.id } },
-      select: { status: true },
-    }),
-  ]);
-
-  const isEnrolled = enrollment !== null;
-  const isCompleted = lessonProgress?.status === "completed";
+  const { course, lesson, prevLesson, nextLesson, isEnrolled, isCompleted } = data;
+  const lessonIdx = data.lessonIndex;
 
   // Parse body blocks
-  const bodyData = lesson.body as { blocks?: BodyBlock[] } | null;
-  const blocks: BodyBlock[] = bodyData?.blocks ?? [];
+  const blocks: BodyBlock[] = lesson.body?.blocks ?? [];
 
   const nextHref = nextLesson
     ? `/app/learn/${course.slug}/${nextLesson.slug}`

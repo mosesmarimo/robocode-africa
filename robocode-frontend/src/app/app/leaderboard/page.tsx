@@ -1,89 +1,63 @@
 import { Trophy, Users, School } from "lucide-react";
-import { getCurrentUser, getPageUser } from "@/lib/auth/current-user";
-import { prisma } from "@/lib/prisma";
-import { levelProgress } from "@/lib/domain/constants";
+import { getPageUser } from "@/lib/auth/current-user";
+import { apiGet } from "@/lib/api/client";
 import { Card } from "@/components/ui/card";
 import { StatCard } from "@/components/app/stat-card";
 import { LeaderboardTabs } from "./leaderboard-tabs";
 
 export const metadata = { title: "Leaderboard" };
 
+interface LeaderboardStudent {
+  id: string;
+  displayName: string;
+  roboPoints: number;
+  level: number;
+  tenantId: string;
+  computedLevel: number;
+}
+
+interface LeaderboardTeam {
+  id: string;
+  name: string;
+  roboPoints: number;
+  tenantId: string;
+  kind: string;
+  _count: { members: number };
+}
+
+interface LeaderboardSchool {
+  tenantId: string;
+  name: string;
+  totalPoints: number;
+  studentCount: number;
+}
+
+interface LeaderboardResponse {
+  isPlatformStaff: boolean;
+  students: LeaderboardStudent[];
+  teams: LeaderboardTeam[];
+  schools: LeaderboardSchool[];
+  userStudentRank: number;
+  userSchoolRank: number;
+  totalStudents: number;
+  currentUserId: string;
+  currentTenantId: string;
+}
+
 export default async function LeaderboardPage() {
   const user = (await getPageUser());
-  const isPlatformStaff = user.role === "super_admin" || user.role === "moderator";
 
-  // --- Students ---
-  const studentWhere = isPlatformStaff
-    ? { role: "student" as const, status: "active" as const }
-    : { role: "student" as const, status: "active" as const, tenantId: user.tenantId };
-
-  const topStudents = await prisma.user.findMany({
-    where: studentWhere,
-    orderBy: { roboPoints: "desc" },
-    take: 50,
-    select: {
-      id: true,
-      displayName: true,
-      roboPoints: true,
-      level: true,
-      tenantId: true,
-    },
-  });
-
-  const studentsWithLevel = topStudents.map((s) => ({
-    ...s,
-    computedLevel: levelProgress(s.roboPoints).level,
-  }));
-
-  // --- Teams ---
-  const teamWhere = isPlatformStaff ? {} : { tenantId: user.tenantId };
-  const topTeams = await prisma.team.findMany({
-    where: teamWhere,
-    orderBy: { roboPoints: "desc" },
-    take: 50,
-    select: {
-      id: true,
-      name: true,
-      roboPoints: true,
-      tenantId: true,
-      kind: true,
-      _count: { select: { members: true } },
-    },
-  });
-
-  // --- Schools (aggregate student points per tenant) ---
-  const schoolAgg = await prisma.user.groupBy({
-    by: ["tenantId"],
-    where: { role: "student", status: "active" },
-    _sum: { roboPoints: true },
-    _count: { id: true },
-    orderBy: { _sum: { roboPoints: "desc" } },
-    take: 50,
-  });
-
-  // Fetch tenant names for the aggregated tenantIds
-  const tenantIds = schoolAgg.map((a) => a.tenantId);
-  const tenants = await prisma.tenant.findMany({
-    where: { id: { in: tenantIds } },
-    select: { id: true, name: true },
-  });
-  const tenantMap = new Map(tenants.map((t) => [t.id, t.name]));
-
-  const topSchools = schoolAgg.map((a) => ({
-    tenantId: a.tenantId,
-    name: tenantMap.get(a.tenantId) ?? "Unknown School",
-    totalPoints: a._sum.roboPoints ?? 0,
-    studentCount: a._count.id,
-  }));
-
-  // Current user's school rank (for highlighting)
-  const userSchoolRank = topSchools.findIndex((s) => s.tenantId === user.tenantId) + 1;
-
-  // Stats strip data
-  const userStudentRank = studentsWithLevel.findIndex((s) => s.id === user.id) + 1;
-  const totalStudents = isPlatformStaff
-    ? await prisma.user.count({ where: { role: "student", status: "active" } })
-    : await prisma.user.count({ where: { role: "student", status: "active", tenantId: user.tenantId } });
+  const {
+    isPlatformStaff,
+    students: studentsWithLevel,
+    teams: topTeams,
+    schools: topSchools,
+    userStudentRank,
+    userSchoolRank,
+    totalStudents,
+    currentUserId,
+    currentTenantId,
+  } = await apiGet<LeaderboardResponse>("/leaderboard");
 
   return (
     <div className="space-y-6">
@@ -147,8 +121,8 @@ export default async function LeaderboardPage() {
           students={studentsWithLevel}
           teams={topTeams}
           schools={topSchools}
-          currentUserId={user.id}
-          currentTenantId={user.tenantId}
+          currentUserId={currentUserId}
+          currentTenantId={currentTenantId}
           userSchoolRank={userSchoolRank}
         />
       )}

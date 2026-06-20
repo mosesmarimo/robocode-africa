@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Zap, CheckCircle2, Circle, Swords } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth/current-user";
-import { prisma } from "@/lib/prisma";
+import { apiGet } from "@/lib/api/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -18,34 +18,35 @@ const DIFFICULTY_VARIANT = {
 
 const TRACK_ALL = "all";
 
+interface ChallengeTask {
+  id: string;
+  slug: string;
+  title: string;
+  description: string | null;
+  track: string;
+  difficulty: string;
+  points: number;
+}
+
+interface ChallengesResponse {
+  tasks: ChallengeTask[];
+  bestStatus: Record<string, string>;
+  passedCount: number;
+  totalCount: number;
+}
+
 export default async function ChallengesPage({
   searchParams,
 }: {
   searchParams: Promise<{ track?: string }>;
 }) {
-  const [user, { track: trackParam }] = await Promise.all([
+  const [, { track: trackParam }] = await Promise.all([
     getCurrentUser(),
     searchParams,
   ]);
-  const me = user!;
 
-  const tasks = await prisma.task.findMany({
-    orderBy: [{ track: "asc" }, { difficulty: "asc" }],
-  });
-
-  // Fetch best submission per task for this user
-  const submissions = await prisma.submission.findMany({
-    where: { userId: me.id, taskId: { in: tasks.map((t) => t.id) } },
-    select: { taskId: true, status: true },
-    orderBy: { createdAt: "desc" },
-  });
-
-  // Map taskId → best status (passed wins over failed)
-  const bestStatus = new Map<string, string>();
-  for (const s of submissions) {
-    const cur = bestStatus.get(s.taskId);
-    if (!cur || s.status === "passed") bestStatus.set(s.taskId, s.status);
-  }
+  const { tasks, bestStatus, passedCount } =
+    await apiGet<ChallengesResponse>("/challenges");
 
   const tabs = [
     { value: TRACK_ALL, label: "All" },
@@ -60,8 +61,6 @@ export default async function ChallengesPage({
     if (tab === TRACK_ALL) return tasks;
     return tasks.filter((t) => t.track === tab);
   }
-
-  const passedCount = tasks.filter((t) => bestStatus.get(t.id) === "passed").length;
 
   return (
     <div className="space-y-6">
@@ -117,7 +116,7 @@ export default async function ChallengesPage({
                 ) : (
                   <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                     {filtered.map((task) => {
-                      const status = bestStatus.get(task.id);
+                      const status = bestStatus[task.id];
                       const isPassed = status === "passed";
                       const isTried = !!status;
                       return (

@@ -1,8 +1,6 @@
-import { notFound } from "next/navigation";
 import { UserCheck, Clock, Users } from "lucide-react";
-import { getCurrentUser, getPageUser } from "@/lib/auth/current-user";
-import { can } from "@/lib/domain/roles";
-import { prisma } from "@/lib/prisma";
+import { getPageUser } from "@/lib/auth/current-user";
+import { apiGet } from "@/lib/api/client";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -12,25 +10,26 @@ import { initials, formatRelative } from "@/lib/utils";
 
 export const metadata = { title: "Student Approvals" };
 
+interface PendingUser {
+  id: string;
+  displayName: string;
+  email: string;
+  isMinor: boolean;
+  guardianEmail: string | null;
+  createdAt: string;
+}
+
+interface ApprovalsData {
+  pendingUsers: PendingUser[];
+  totalStudents: number;
+  approvedToday: number;
+}
+
 export default async function ApprovalsPage() {
   const user = (await getPageUser());
-  if (!can(user.role, "tenant.manage")) notFound();
 
-  const [pendingUsers, totalStudents, approvedToday] = await Promise.all([
-    prisma.user.findMany({
-      where: { tenantId: user.tenantId, status: "pending", role: "student" },
-      orderBy: { createdAt: "asc" },
-      include: { approvalRequest: true },
-    }),
-    prisma.user.count({ where: { tenantId: user.tenantId, role: "student", status: "active" } }),
-    prisma.approvalRequest.count({
-      where: {
-        tenantId: user.tenantId,
-        status: "approved",
-        decidedAt: { gte: new Date(new Date().setHours(0, 0, 0, 0)) },
-      },
-    }),
-  ]);
+  const { pendingUsers, totalStudents, approvedToday } =
+    await apiGet<ApprovalsData>("/school/approvals");
 
   return (
     <div className="space-y-6">

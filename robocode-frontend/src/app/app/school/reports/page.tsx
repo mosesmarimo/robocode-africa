@@ -1,8 +1,6 @@
-import { notFound } from "next/navigation";
 import { BarChart3, TrendingUp } from "lucide-react";
-import { getCurrentUser, getPageUser } from "@/lib/auth/current-user";
-import { can } from "@/lib/domain/roles";
-import { prisma } from "@/lib/prisma";
+import { getPageUser } from "@/lib/auth/current-user";
+import { apiGet } from "@/lib/api/client";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -12,65 +10,39 @@ import { initials } from "@/lib/utils";
 
 export const metadata = { title: "School Reports" };
 
+interface TopStudent {
+  id: string;
+  displayName: string;
+  roboPoints: number;
+  level: number;
+}
+
+interface ReportsData {
+  activeStudents: number;
+  projectsCreated: number;
+  lessonsCompleted: number;
+  totalSubmissions: number;
+  passedSubmissions: number;
+  passRate: number;
+  topStudents: TopStudent[];
+  byTrack: Record<string, number>;
+  totalEnrollments: number;
+}
+
 export default async function ReportsPage() {
   const user = (await getPageUser());
-  if (!can(user.role, "tenant.manage")) notFound();
 
-  const tenantId = user.tenantId;
-
-  const [
+  const {
     activeStudents,
     projectsCreated,
     lessonsCompleted,
     totalSubmissions,
     passedSubmissions,
+    passRate,
     topStudents,
-    trackBreakdown,
-  ] = await Promise.all([
-    // Active students
-    prisma.user.count({ where: { tenantId, role: "student", status: "active" } }),
-    // Projects created
-    prisma.project.count({ where: { tenantId } }),
-    // Lesson completions
-    prisma.lessonProgress.count({
-      where: { status: "completed", user: { tenantId } },
-    }),
-    // Total challenge submissions
-    prisma.submission.count({ where: { user: { tenantId } } }),
-    // Passed submissions
-    prisma.submission.count({ where: { user: { tenantId }, status: "passed" } }),
-    // Top students by RoboPoints
-    prisma.user.findMany({
-      where: { tenantId, role: "student", status: "active" },
-      orderBy: { roboPoints: "desc" },
-      take: 10,
-      select: { id: true, displayName: true, roboPoints: true, level: true },
-    }),
-    // Track breakdown for enrolments
-    prisma.enrollment.groupBy({
-      by: ["courseId"],
-      where: { user: { tenantId } },
-      _count: { _all: true },
-    }),
-  ]);
-
-  const passRate =
-    totalSubmissions > 0 ? Math.round((passedSubmissions / totalSubmissions) * 100) : 0;
-
-  // Get course info for track breakdown
-  const courseIds = trackBreakdown.map((t) => t.courseId);
-  const courses = await prisma.course.findMany({
-    where: { id: { in: courseIds } },
-    select: { id: true, track: true },
-  });
-  const courseTrackMap = Object.fromEntries(courses.map((c) => [c.id, c.track]));
-
-  const byTrack: Record<string, number> = {};
-  for (const row of trackBreakdown) {
-    const track = courseTrackMap[row.courseId] ?? "other";
-    byTrack[track] = (byTrack[track] ?? 0) + row._count._all;
-  }
-  const totalEnrollments = Object.values(byTrack).reduce((a, b) => a + b, 0);
+    byTrack,
+    totalEnrollments,
+  } = await apiGet<ReportsData>("/school/reports");
 
   const TRACK_COLOR: Record<string, string> = {
     robotics: "bg-primary",

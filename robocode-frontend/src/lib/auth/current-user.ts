@@ -1,28 +1,40 @@
 import "server-only";
 import { cache } from "react";
 import { redirect } from "next/navigation";
-import { prisma } from "@/lib/prisma";
-import { readSession } from "@/lib/auth/session";
+import { apiGetOrNull } from "@/lib/api/client";
 import type { Capability } from "@/lib/domain/roles";
 import { can } from "@/lib/domain/roles";
 
-export const getCurrentUser = cache(async () => {
-  const session = await readSession();
-  if (!session) return null;
-  const user = await prisma.user.findUnique({
-    where: { id: session.uid },
-    include: { tenant: true },
-  });
-  if (!user || user.status === "suspended" || user.status === "rejected") return null;
-  return user;
-});
+/** The authenticated user, as returned by the backend's safe `publicUser` projection. */
+export type CurrentUser = {
+  id: string;
+  email: string;
+  displayName: string;
+  role: string;
+  status: string;
+  tenantId: string;
+  isMinor: boolean;
+  avatarSeed: string | null;
+  roboPoints: number;
+  level: number;
+  locale: string | null;
+  tenant: {
+    id: string;
+    slug: string;
+    name: string;
+    isPlatform: boolean;
+    branding: unknown;
+  } | null;
+};
 
-export type CurrentUser = NonNullable<Awaited<ReturnType<typeof getCurrentUser>>>;
+export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
+  const data = await apiGetOrNull<{ user: CurrentUser | null }>("/auth/me");
+  return data?.user ?? null;
+});
 
 /**
  * For pages under the authenticated shell: returns the active user, or redirects
- * to /login if the session is missing/stale (e.g. the user no longer exists).
- * `redirect()` throws, so the return type is non-null.
+ * to /login if the session is missing/stale. `redirect()` throws, so non-null.
  */
 export async function getPageUser() {
   const user = await getCurrentUser();

@@ -1,6 +1,6 @@
 import { Award, Lock } from "lucide-react";
-import { getCurrentUser, getPageUser } from "@/lib/auth/current-user";
-import { prisma } from "@/lib/prisma";
+import { getPageUser } from "@/lib/auth/current-user";
+import { apiGet } from "@/lib/api/client";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { StatCard } from "@/components/app/stat-card";
@@ -9,20 +9,33 @@ import { cn, formatRelative } from "@/lib/utils";
 
 export const metadata = { title: "Badges" };
 
-export default async function BadgesPage() {
-  const user = (await getPageUser());
+interface BadgeRecord {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+}
 
-  const [allBadges, earnedRecords] = await Promise.all([
-    prisma.badge.findMany({ orderBy: { name: "asc" } }),
-    prisma.userBadge.findMany({
-      where: { userId: user.id },
-      include: { badge: true },
-    }),
-  ]);
+interface UserBadgeRecord {
+  badgeId: string;
+  awardedAt: string;
+  badge: BadgeRecord;
+}
+
+interface BadgesResponse {
+  allBadges: BadgeRecord[];
+  earnedRecords: UserBadgeRecord[];
+  earnedCount: number;
+  totalCount: number;
+}
+
+export default async function BadgesPage() {
+  await getPageUser();
+
+  const { allBadges, earnedRecords, earnedCount, totalCount } =
+    await apiGet<BadgesResponse>("/badges");
 
   const earnedMap = new Map(earnedRecords.map((ub) => [ub.badgeId, ub]));
-  const earnedCount = earnedRecords.length;
-  const totalCount = allBadges.length;
 
   return (
     <div className="space-y-6">

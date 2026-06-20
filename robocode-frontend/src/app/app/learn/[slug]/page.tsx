@@ -9,17 +9,51 @@ import {
   BookOpen,
   ArrowLeft,
 } from "lucide-react";
-import { getCurrentUser, getPageUser } from "@/lib/auth/current-user";
-import { prisma } from "@/lib/prisma";
+import { apiGet, ApiError, apiPost } from "@/lib/api/client";
 import { TRACK_LABELS, LEVEL_LABELS } from "@/lib/domain/constants";
 import { Card, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
-import { enroll } from "@/lib/learn/actions";
 
 export const metadata = { title: "Course" };
+
+interface CourseLesson {
+  id: string;
+  slug: string;
+  title: string;
+  estMinutes: number;
+}
+
+interface CourseTask {
+  id: string;
+  slug: string;
+  title: string;
+  difficulty: string;
+  points: number;
+}
+
+interface CourseDetail {
+  id: string;
+  slug: string;
+  title: string;
+  description: string | null;
+  track: string;
+  level: string;
+  tenantId: string | null;
+  lessons: CourseLesson[];
+  tasks: CourseTask[];
+}
+
+interface CourseResponse {
+  course: CourseDetail;
+  enrollment: { completedAt: string | null } | null;
+  enrolledPercent: number | null;
+  completedLessonIds: string[];
+  stats: { totalLessons: number; completedLessons: number; totalMinutes: number };
+  nextLesson: CourseLesson | null;
+}
 
 export default async function CoursePage({
   params,
@@ -27,58 +61,22 @@ export default async function CoursePage({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  const user = (await getPageUser());
 
-  const course = await prisma.course.findUnique({
-    where: { slug },
-    include: {
-      lessons: { orderBy: { order: "asc" } },
-      tasks: true,
-    },
-  });
-
-  if (!course || !course.published) notFound();
-
-  // Scope check: non-platform users only see global or their tenant's courses
-  const isStaffUser =
-    user.role === "super_admin" || user.role === "moderator";
-  if (!isStaffUser && course.tenantId !== null && course.tenantId !== user.tenantId) {
-    notFound();
+  let data: CourseResponse;
+  try {
+    data = await apiGet<CourseResponse>(`/learn/courses/${slug}`);
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) notFound();
+    throw e;
   }
 
-  const [enrollment, lessonProgresses] = await Promise.all([
-    prisma.enrollment.findUnique({
-      where: { userId_courseId: { userId: user.id, courseId: course.id } },
-    }),
-    prisma.lessonProgress.findMany({
-      where: {
-        userId: user.id,
-        lessonId: { in: course.lessons.map((l) => l.id) },
-      },
-      select: { lessonId: true, status: true },
-    }),
-  ]);
+  const { course, enrollment, enrolledPercent, nextLesson } = data;
 
-  const completedSet = new Set(
-    lessonProgresses
-      .filter((lp) => lp.status === "completed")
-      .map((lp) => lp.lessonId),
-  );
+  const completedSet = new Set(data.completedLessonIds);
 
-  const enrolledPercent = enrollment
-    ? ((enrollment.progress as { percent?: number })?.percent ?? 0)
-    : null;
-
-  const totalLessons = course.lessons.length;
-  const completedLessons = completedSet.size;
-  const totalMinutes = course.lessons.reduce(
-    (sum, l) => sum + (l.estMinutes ?? 0),
-    0,
-  );
-
-  // Find first incomplete lesson for "continue" CTA
-  const nextLesson =
-    course.lessons.find((l) => !completedSet.has(l.id)) ?? course.lessons[0];
+  const totalLessons = data.stats.totalLessons;
+  const completedLessons = data.stats.completedLessons;
+  const totalMinutes = data.stats.totalMinutes;
 
   return (
     <div className="space-y-6">
@@ -149,7 +147,7 @@ export default async function CoursePage({
               <form
                 action={async () => {
                   "use server";
-                  await enroll(course.id);
+                  await apiPost("/learn/enroll", { courseId: course.id });
                 }}
               >
                 <Button type="submit" variant="secondary" size="lg" className="bg-white text-primary hover:bg-white/90">

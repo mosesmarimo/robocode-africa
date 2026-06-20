@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Zap, ExternalLink, ArrowLeft, CheckCircle2, Circle } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth/current-user";
-import { prisma } from "@/lib/prisma";
+import { apiGet, apiGetOrNull, ApiError } from "@/lib/api/client";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -17,34 +17,56 @@ const DIFFICULTY_VARIANT = {
   advanced: "destructive",
 } as const;
 
+interface ChallengeTask {
+  id: string;
+  slug: string;
+  title: string;
+  description: string | null;
+  track: string;
+  difficulty: string;
+  points: number;
+  boardType: string | null;
+  starterCode: string | null;
+}
+
+interface ChallengeSubmission {
+  id: string;
+  status: string;
+  score: number | null;
+  createdAt: string;
+}
+
+interface ChallengeDetailResponse {
+  task: ChallengeTask;
+  submissions: ChallengeSubmission[];
+  bestSubmission: ChallengeSubmission | null;
+  isPassed: boolean;
+}
+
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const task = await prisma.task.findUnique({ where: { slug } });
-  return { title: task ? task.title : "Challenge" };
+  const data = await apiGetOrNull<ChallengeDetailResponse>(`/challenges/${slug}`);
+  return { title: data?.task ? data.task.title : "Challenge" };
 }
 
 export default async function ChallengePage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
 
-  const [user, task] = await Promise.all([
+  let data: ChallengeDetailResponse;
+  const [, fetched] = await Promise.all([
     getCurrentUser(),
-    prisma.task.findUnique({ where: { slug } }),
+    (async () => {
+      try {
+        return await apiGet<ChallengeDetailResponse>(`/challenges/${slug}`);
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 404) notFound();
+        throw e;
+      }
+    })(),
   ]);
+  data = fetched;
 
-  if (!task) notFound();
-
-  const me = user!;
-
-  // Fetch all submissions for this user+task to show history
-  const submissions = await prisma.submission.findMany({
-    where: { userId: me.id, taskId: task.id },
-    orderBy: { createdAt: "desc" },
-    take: 10,
-    select: { id: true, status: true, score: true, createdAt: true },
-  });
-
-  const bestSubmission = submissions.find((s) => s.status === "passed") ?? submissions[0] ?? null;
-  const isPassed = bestSubmission?.status === "passed";
+  const { task, submissions, isPassed } = data;
 
   const board = getBoard(task.boardType ?? "arduino-uno");
 

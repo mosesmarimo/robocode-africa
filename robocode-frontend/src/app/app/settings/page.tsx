@@ -1,12 +1,24 @@
-import { getCurrentUser, getPageUser } from "@/lib/auth/current-user";
+import { getPageUser } from "@/lib/auth/current-user";
+import { apiGet } from "@/lib/api/client";
 import { SettingsForm } from "@/components/account/settings-form";
 
 export const metadata = { title: "Settings" };
 
-export default async function SettingsPage() {
-  const user = (await getPageUser());
+interface SettingsData {
+  user: {
+    displayName: string;
+    locale: string;
+    avatarSeed: string;
+    email: string;
+    role: string;
+  };
+  schoolName: string | null;
+}
 
-  const schoolName = user.tenant?.isPlatform ? null : (user.tenant?.name ?? null);
+export default async function SettingsPage() {
+  await getPageUser();
+
+  const { user, schoolName } = await apiGet<SettingsData>("/account/settings");
 
   return (
     <div className="space-y-6">

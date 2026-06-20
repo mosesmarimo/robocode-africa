@@ -1,9 +1,7 @@
 import Link from "next/link";
 import { ArrowRight, Plus } from "lucide-react";
-import { getCurrentUser, getPageUser } from "@/lib/auth/current-user";
-import { prisma } from "@/lib/prisma";
-import { can } from "@/lib/domain/roles";
-import { levelProgress } from "@/lib/domain/constants";
+import { getPageUser, type CurrentUser } from "@/lib/auth/current-user";
+import { apiGet } from "@/lib/api/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -13,34 +11,66 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Icon } from "@/components/icon";
 import { initials } from "@/lib/utils";
 
-export default async function DashboardPage() {
-  const user = (await getPageUser());
-  const firstName = user.displayName.split(" ")[0];
-
-  if (user.role === "student") return <StudentDashboard user={user} firstName={firstName} />;
-  return <StaffDashboard user={user} firstName={firstName} />;
+interface DashboardProject {
+  id: string;
+  title: string;
+  description: string | null;
+  boardType: string;
+  updatedAt: string;
 }
 
-async function StudentDashboard({
-  user,
-  firstName,
-}: {
-  user: NonNullable<Awaited<ReturnType<typeof getCurrentUser>>>;
+interface DashboardLeader {
+  id: string;
+  displayName: string;
+  roboPoints: number;
+}
+
+interface DashboardEnrollment {
+  id: string;
+  progress: { percent?: number } | null;
+  course: { title: string; track: string };
+}
+
+interface StudentDashboardData {
+  kind: "student";
   firstName: string;
+  progress: { level: number; into: number; span: number; pct: number };
+  stats: { roboPoints: number; level: number; badges: number; rank: number | null };
+  projects: DashboardProject[];
+  leaders: DashboardLeader[];
+  enrollments: DashboardEnrollment[];
+}
+
+interface StaffDashboardData {
+  kind: "staff";
+  firstName: string;
+  platform: boolean;
+  tenantName: string | null;
+  canApprove: boolean;
+  stats: { pending: number; members: number; projects: number; competitions: number };
+}
+
+type DashboardData = StudentDashboardData | StaffDashboardData;
+
+export default async function DashboardPage() {
+  const user = await getPageUser();
+  const data = await apiGet<DashboardData>("/dashboard");
+
+  if (data.kind === "student") return <StudentDashboard user={user} data={data} />;
+  return <StaffDashboard data={data} />;
+}
+
+function StudentDashboard({
+  user,
+  data,
+}: {
+  user: CurrentUser;
+  data: StudentDashboardData;
 }) {
-  const [projects, badgeCount, enrollments, leaders] = await Promise.all([
-    prisma.project.findMany({ where: { ownerId: user.id }, orderBy: { updatedAt: "desc" }, take: 4 }),
-    prisma.userBadge.count({ where: { userId: user.id } }),
-    prisma.enrollment.findMany({ where: { userId: user.id }, include: { course: true }, take: 3 }),
-    prisma.user.findMany({
-      where: { tenantId: user.tenantId, role: "student", status: "active" },
-      orderBy: { roboPoints: "desc" },
-      take: 5,
-      select: { id: true, displayName: true, roboPoints: true },
-    }),
-  ]);
-  const { level, into, span, pct } = levelProgress(user.roboPoints);
-  const rank = leaders.findIndex((l) => l.id === user.id) + 1;
+  const firstName = data.firstName;
+  const { level, into, span, pct } = data.progress;
+  const { badges: badgeCount, rank } = data.stats;
+  const { projects, leaders, enrollments } = data;
 
   return (
     <div className="space-y-6">
@@ -71,7 +101,7 @@ async function StudentDashboard({
         <StatCard label="RoboPoints" value={user.roboPoints.toLocaleString()} icon="zap" tone="accent" />
         <StatCard label="Level" value={level} icon="sparkles" tone="primary" />
         <StatCard label="Badges earned" value={badgeCount} icon="award" tone="secondary" />
-        <StatCard label="Class rank" value={rank > 0 ? `#${rank}` : "—"} icon="trophy" tone="success" />
+        <StatCard label="Class rank" value={rank && rank > 0 ? `#${rank}` : "—"} icon="trophy" tone="success" />
       </section>
 
       <div className="grid gap-6 lg:grid-cols-3">
@@ -142,32 +172,19 @@ async function StudentDashboard({
   );
 }
 
-async function StaffDashboard({
-  user,
-  firstName,
-}: {
-  user: NonNullable<Awaited<ReturnType<typeof getCurrentUser>>>;
-  firstName: string;
-}) {
-  const platform = user.role === "super_admin" || user.role === "moderator";
-  const approvalWhere = platform ? { status: "pending" } : { tenantId: user.tenantId, status: "pending" };
-  const memberWhere = platform ? {} : { tenantId: user.tenantId };
-
-  const [pending, members, projects, competitions] = await Promise.all([
-    prisma.approvalRequest.count({ where: approvalWhere }),
-    prisma.user.count({ where: { ...memberWhere, role: "student" } }),
-    prisma.project.count({ where: platform ? {} : { tenantId: user.tenantId } }),
-    prisma.competition.count(),
-  ]);
+function StaffDashboard({ data }: { data: StaffDashboardData }) {
+  const firstName = data.firstName;
+  const { platform, tenantName, canApprove } = data;
+  const { pending, members, projects, competitions } = data.stats;
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="font-display text-3xl font-bold">Welcome, {firstName}</h1>
-          <p className="text-muted-foreground">Here&apos;s what&apos;s happening across {platform ? "the platform" : user.tenant?.name}.</p>
+          <p className="text-muted-foreground">Here&apos;s what&apos;s happening across {platform ? "the platform" : tenantName}.</p>
         </div>
-        {can(user.role, "tenant.approve_students") || can(user.role, "platform.approve_direct") ? (
+        {canApprove ? (
           <Button asChild><Link href={platform ? "/app/admin/approvals" : "/app/school/approvals"}>Review approvals</Link></Button>
         ) : null}
       </div>

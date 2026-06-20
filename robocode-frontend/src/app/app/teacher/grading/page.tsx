@@ -1,55 +1,33 @@
-import { notFound } from "next/navigation";
 import { Star, CheckCircle, Clock } from "lucide-react";
-import { getCurrentUser, getPageUser } from "@/lib/auth/current-user";
-import { can } from "@/lib/domain/roles";
-import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { StatCard } from "@/components/app/stat-card";
 import { GradeDialog } from "@/components/teacher/teacher-buttons";
 import { initials, formatRelative } from "@/lib/utils";
+import { apiGet } from "@/lib/api/client";
 
 export const metadata = { title: "Grading" };
 
+interface GradingSubmission {
+  id: string;
+  status: string;
+  score: number | null;
+  feedback: string | null;
+  createdAt: string;
+  user: { id: string; displayName: string; email: string };
+  task: { id: string; title: string; difficulty: string; points: number };
+}
+
+interface GradingResponse {
+  pendingSubmissions: GradingSubmission[];
+  gradedSubmissions: GradingSubmission[];
+  studentCount: number;
+}
+
 export default async function TeacherGradingPage() {
-  const user = (await getPageUser());
-  if (!can(user.role, "class.manage")) notFound();
-
-  // Get all student IDs in this teacher's tenant
-  const tenantStudents = await prisma.user.findMany({
-    where: { tenantId: user.tenantId, role: "student", status: "active" },
-    select: { id: true },
-  });
-  const studentIds = tenantStudents.map((s) => s.id);
-
-  // All submissions pending review (submitted or passed), scoped to tenant students
-  const [pendingSubmissions, gradedSubmissions] = await Promise.all([
-    prisma.submission.findMany({
-      where: {
-        userId: { in: studentIds },
-        status: { in: ["submitted", "passed"] },
-      },
-      include: {
-        user: { select: { id: true, displayName: true, email: true } },
-        task: { select: { id: true, title: true, difficulty: true, points: true } },
-      },
-      orderBy: { createdAt: "asc" },
-      take: 50,
-    }),
-    prisma.submission.findMany({
-      where: {
-        userId: { in: studentIds },
-        status: "graded",
-      },
-      include: {
-        user: { select: { id: true, displayName: true, email: true } },
-        task: { select: { id: true, title: true, difficulty: true, points: true } },
-      },
-      orderBy: { createdAt: "desc" },
-      take: 20,
-    }),
-  ]);
+  const { pendingSubmissions, gradedSubmissions, studentCount } =
+    await apiGet<GradingResponse>("/teacher/grading");
 
   const difficultyVariant: Record<string, "success" | "warning" | "destructive"> = {
     beginner: "success",
@@ -75,7 +53,7 @@ export default async function TeacherGradingPage() {
       <section className="grid gap-4 sm:grid-cols-3">
         <StatCard label="Awaiting review" value={pendingSubmissions.length} icon="hourglass" tone="accent" hint="submitted or auto-passed" />
         <StatCard label="Recently graded" value={gradedSubmissions.length} icon="check-circle" tone="success" />
-        <StatCard label="Students in school" value={studentIds.length} icon="users" tone="primary" />
+        <StatCard label="Students in school" value={studentCount} icon="users" tone="primary" />
       </section>
 
       {/* Pending */}

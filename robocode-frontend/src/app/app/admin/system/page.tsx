@@ -1,9 +1,9 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { Activity, ArrowRight, ServerCrash, CheckCircle2 } from "lucide-react";
-import { getCurrentUser, getPageUser } from "@/lib/auth/current-user";
+import { getPageUser } from "@/lib/auth/current-user";
 import { can } from "@/lib/domain/roles";
-import { prisma } from "@/lib/prisma";
+import { apiGet } from "@/lib/api/client";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -14,11 +14,43 @@ import { ROLE_LABELS, type Role } from "@/lib/domain/roles";
 
 export const metadata = { title: "System — Admin" };
 
+interface AuditLog {
+  id: string;
+  action: string;
+  targetType: string | null;
+  targetId: string | null;
+  createdAt: string;
+  actor: { displayName: string; role: string } | null;
+}
+
+interface RecentUser {
+  id: string;
+  displayName: string;
+  role: string;
+  status: string;
+  createdAt: string;
+  tenant: { name: string } | null;
+}
+
+interface SystemResponse {
+  totalSchools: number;
+  activeSchools: number;
+  totalStudents: number;
+  totalTeachers: number;
+  totalProjects: number;
+  totalSimulations: number;
+  totalCompetitions: number;
+  pendingApprovals: number;
+  openModCases: number;
+  recentAuditLogs: AuditLog[];
+  recentUsers: RecentUser[];
+}
+
 export default async function SystemPage() {
   const user = (await getPageUser());
   if (!can(user.role, "platform.manage")) notFound();
 
-  const [
+  const {
     totalSchools,
     activeSchools,
     totalStudents,
@@ -30,37 +62,7 @@ export default async function SystemPage() {
     openModCases,
     recentAuditLogs,
     recentUsers,
-  ] = await Promise.all([
-    prisma.tenant.count({ where: { isPlatform: false } }),
-    prisma.tenant.count({ where: { isPlatform: false, status: "active" } }),
-    prisma.user.count({ where: { role: "student", status: "active" } }),
-    prisma.user.count({ where: { role: "teacher", status: "active" } }),
-    prisma.project.count(),
-    prisma.simulationRun.count(),
-    prisma.competition.count(),
-    prisma.approvalRequest.count({ where: { status: "pending" } }),
-    prisma.moderationCase.count({ where: { status: "open" } }),
-    prisma.auditLog.findMany({
-      orderBy: { createdAt: "desc" },
-      take: 15,
-      select: {
-        id: true,
-        action: true,
-        targetType: true,
-        targetId: true,
-        createdAt: true,
-        actor: { select: { displayName: true, role: true } },
-      },
-    }),
-    prisma.user.findMany({
-      where: { role: { notIn: ["super_admin", "moderator"] } },
-      orderBy: { createdAt: "desc" },
-      take: 6,
-      include: {
-        tenant: { select: { name: true } },
-      },
-    }),
-  ]);
+  } = await apiGet<SystemResponse>("/admin/system");
 
   const platformHealthy = openModCases === 0 && pendingApprovals < 20;
 

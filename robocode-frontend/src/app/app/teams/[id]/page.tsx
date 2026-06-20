@@ -1,9 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { Crown, Cpu, ArrowLeft, UserMinus, Zap, Users } from "lucide-react";
-import { getCurrentUser, getPageUser } from "@/lib/auth/current-user";
-import { isStaff } from "@/lib/domain/roles";
-import { prisma } from "@/lib/prisma";
+import { getPageUser } from "@/lib/auth/current-user";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,8 +12,62 @@ import { TeamChat } from "@/components/teams/team-chat";
 import { getBoard } from "@/lib/domain/boards";
 import { initials, formatRelative } from "@/lib/utils";
 import { leaveTeam } from "@/lib/teams/actions";
+import { apiGet, ApiError } from "@/lib/api/client";
 
 export const metadata = { title: "Team" };
+
+interface TeamMemberUser {
+  id: string;
+  displayName: string;
+  role: string;
+  roboPoints: number;
+}
+
+interface TeamMember {
+  id: string;
+  userId: string;
+  role: string;
+  status: string;
+  user: TeamMemberUser;
+}
+
+interface TeamDetail {
+  id: string;
+  name: string;
+  description: string | null;
+  kind: string;
+  roboPoints: number;
+  tenantId: string;
+  captain: { id: string; displayName: string; roboPoints: number };
+  members: TeamMember[];
+}
+
+interface TeamProject {
+  id: string;
+  title: string;
+  description: string | null;
+  boardType: string;
+  updatedAt: string;
+}
+
+interface ChatMessage {
+  id: string;
+  body: string;
+  status: string;
+  createdAt: string;
+  userId: string;
+  user: { id: string; displayName: string };
+}
+
+interface TeamDetailResponse {
+  team: TeamDetail;
+  projects: TeamProject[];
+  chatMessages: ChatMessage[];
+  isMember: boolean;
+  isCaptain: boolean;
+  sameSchoolStaff: boolean;
+  isPlatformStaff: boolean;
+}
 
 export default async function TeamDetailPage({
   params,
@@ -23,60 +75,17 @@ export default async function TeamDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const user = (await getPageUser());
-  const staffUser = isStaff(user.role);
-  const isPlatformStaff =
-    user.role === "super_admin" || user.role === "moderator";
+  const user = await getPageUser();
 
-  const team = await prisma.team.findUnique({
-    where: { id },
-    include: {
-      captain: {
-        select: { id: true, displayName: true, roboPoints: true },
-      },
-      members: {
-        where: { status: "active" },
-        include: {
-          user: {
-            select: { id: true, displayName: true, role: true, roboPoints: true },
-          },
-        },
-        orderBy: [{ role: "asc" }, { id: "asc" }],
-      },
-    },
-  });
+  let data: TeamDetailResponse;
+  try {
+    data = await apiGet<TeamDetailResponse>(`/teams/${id}`);
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) notFound();
+    throw e;
+  }
 
-  if (!team) notFound();
-
-  // Visibility: only members or staff in same tenant (or platform staff) can view
-  const myMembership = team.members.find((m) => m.userId === user.id);
-  const sameSchoolStaff = staffUser && team.tenantId === user.tenantId;
-  const canView = !!myMembership || sameSchoolStaff || isPlatformStaff;
-
-  if (!canView) notFound();
-
-  // Shared team projects
-  const projects = await prisma.project.findMany({
-    where: { teamId: team.id },
-    orderBy: { updatedAt: "desc" },
-    take: 8,
-  });
-
-  // Chat messages (approved for non-staff, all for staff)
-  const chatMessages = await prisma.chatMessage.findMany({
-    where: {
-      teamId: team.id,
-      ...(staffUser ? {} : { OR: [{ status: "approved" }, { userId: user.id }] }),
-    },
-    include: {
-      user: { select: { id: true, displayName: true } },
-    },
-    orderBy: { createdAt: "asc" },
-    take: 100,
-  });
-
-  const isMember = !!myMembership;
-  const isCaptain = myMembership?.role === "captain";
+  const { team, projects, chatMessages, isMember, isCaptain, sameSchoolStaff, isPlatformStaff } = data;
 
   return (
     <div className="space-y-6">
@@ -238,7 +247,7 @@ export default async function TeamDetailPage({
                     id: m.id,
                     body: m.body,
                     status: m.status,
-                    createdAt: m.createdAt,
+                    createdAt: new Date(m.createdAt),
                     userId: m.userId,
                     user: { id: m.user.id, displayName: m.user.displayName },
                   }))}

@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { BookOpen, ArrowRight, Clock, Layers } from "lucide-react";
-import { getCurrentUser, getPageUser } from "@/lib/auth/current-user";
-import { prisma } from "@/lib/prisma";
+import { apiGet } from "@/lib/api/client";
 import { TRACK_LABELS, LEVEL_LABELS, type Track } from "@/lib/domain/constants";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,46 +9,40 @@ import { Progress } from "@/components/ui/progress";
 
 export const metadata = { title: "Learn" };
 
+interface CourseCard {
+  id: string;
+  slug: string;
+  title: string;
+  description: string | null;
+  track: string;
+  level: string;
+  _count: { lessons: number };
+}
+
+interface LearnCoursesResponse {
+  courses: CourseCard[];
+  enrollMap: Record<string, number>;
+  grouped: Record<Track, CourseCard[]>;
+  trackOrder: Track[];
+  stats: { totalCourses: number; enrolledCount: number; completedCount: number };
+}
+
 export default async function LearnPage() {
-  const user = (await getPageUser());
+  const data = await apiGet<LearnCoursesResponse>("/learn/courses");
 
-  const [courses, enrollments] = await Promise.all([
-    prisma.course.findMany({
-      where: {
-        published: true,
-        OR: [{ tenantId: null }, { tenantId: user.tenantId }],
-      },
-      orderBy: { order: "asc" },
-      include: { _count: { select: { lessons: true } } },
-    }),
-    prisma.enrollment.findMany({
-      where: { userId: user.id },
-      select: { courseId: true, progress: true },
-    }),
-  ]);
+  const { courses } = data;
 
-  const enrollMap = new Map(
-    enrollments.map((e) => [
-      e.courseId,
-      (e.progress as { percent?: number })?.percent ?? 0,
-    ]),
-  );
+  const enrollMap = new Map<string, number>(Object.entries(data.enrollMap));
 
   // Group courses by track preserving track order
-  const trackOrder: Track[] = ["robotics", "coding", "ai"];
-  const grouped = new Map<Track, typeof courses>(
-    trackOrder.map((t) => [t, []]),
+  const trackOrder = data.trackOrder;
+  const grouped = new Map<Track, CourseCard[]>(
+    trackOrder.map((t) => [t, data.grouped[t] ?? []]),
   );
-  for (const c of courses) {
-    const t = c.track as Track;
-    if (grouped.has(t)) grouped.get(t)!.push(c);
-  }
 
-  const totalCourses = courses.length;
-  const enrolledCount = enrollments.length;
-  const completedCount = enrollments.filter(
-    (e) => ((e.progress as { percent?: number })?.percent ?? 0) >= 100,
-  ).length;
+  const totalCourses = data.stats.totalCourses;
+  const enrolledCount = data.stats.enrolledCount;
+  const completedCount = data.stats.completedCount;
 
   return (
     <div className="space-y-8">
