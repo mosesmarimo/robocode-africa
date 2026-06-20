@@ -5,7 +5,7 @@ import { nanoid } from "nanoid";
 import type { Diagram, DiagramPart, DiagramWire } from "@/lib/domain/diagram";
 import { WIRE_COLORS } from "@/lib/domain/diagram";
 import { COMPONENT_BY_ID } from "@/lib/domain/components";
-import { getBoard, type BoardId } from "@/lib/domain/boards";
+import { type BoardId } from "@/lib/domain/boards";
 
 export const GRID = 8;
 const snapGrid = (v: number) => Math.round(v / GRID) * GRID;
@@ -14,14 +14,21 @@ type Snapshot = { parts: DiagramPart[]; wires: DiagramWire[] };
 
 export type PendingWire = { from: string; fromXY: { x: number; y: number } } | null;
 
+export interface StudioFile {
+  name: string;
+  language: string; // arduino | cpp | markdown | json | text
+  content: string;
+  readonly?: boolean;
+}
+
 export interface StudioState {
   projectId: string;
   title: string;
   board: BoardId;
   parts: DiagramPart[];
   wires: DiagramWire[];
-  code: string;
-  language: string;
+  files: StudioFile[];
+  activeFile: string;
   dirty: boolean;
 
   selectedId: string | null;
@@ -38,7 +45,7 @@ export interface StudioState {
   past: Snapshot[];
   future: Snapshot[];
 
-  load: (d: { projectId: string; title: string; diagram: Diagram; code: string; language?: string }) => void;
+  load: (d: { projectId: string; title: string; diagram: Diagram; files: StudioFile[] }) => void;
   addPart: (type: string, at?: { x: number; y: number }) => void;
   movePart: (id: string, x: number, y: number) => void;
   rotatePart: (id: string) => void;
@@ -56,7 +63,11 @@ export interface StudioState {
   moveWireBend: (wireId: string, index: number, point: { x: number; y: number }) => void;
   removeWireBend: (wireId: string, index: number) => void;
 
-  setCode: (code: string) => void;
+  setActiveFile: (name: string) => void;
+  setFileContent: (name: string, content: string) => void;
+  setSketch: (content: string) => void;
+  sketchContent: () => string;
+  readmeContent: () => string;
   setBoard: (b: BoardId) => void;
   setTitle: (t: string) => void;
 
@@ -84,8 +95,8 @@ export const useStudio = create<StudioState>((set, get) => ({
   board: "arduino-uno",
   parts: [],
   wires: [],
-  code: "",
-  language: "arduino",
+  files: [],
+  activeFile: "sketch.ino",
   dirty: false,
   selectedId: null,
   selectedWireId: null,
@@ -98,21 +109,23 @@ export const useStudio = create<StudioState>((set, get) => ({
   past: [],
   future: [],
 
-  load: (d) =>
+  load: (d) => {
+    const sketch = d.files.find((f) => f.name.endsWith(".ino")) ?? d.files[0];
     set({
       projectId: d.projectId,
       title: d.title,
       board: (d.diagram.board as BoardId) ?? "arduino-uno",
       parts: d.diagram.parts ?? [],
       wires: d.diagram.wires ?? [],
-      code: d.code,
-      language: d.language ?? getBoard(d.diagram.board).defaultLanguage,
+      files: d.files,
+      activeFile: sketch?.name ?? "sketch.ino",
       dirty: false,
       past: [],
       future: [],
       selectedId: null,
       selectedWireId: null,
-    }),
+    });
+  },
 
   addPart: (type, at) => {
     const s = get();
@@ -219,7 +232,20 @@ export const useStudio = create<StudioState>((set, get) => ({
       dirty: true,
     })),
 
-  setCode: (code) => set({ code, dirty: true }),
+  setActiveFile: (name) => set({ activeFile: name }),
+  setFileContent: (name, content) =>
+    set((s) => ({ files: s.files.map((f) => (f.name === name ? { ...f, content } : f)), dirty: true })),
+  setSketch: (content) =>
+    set((s) => {
+      const sketch = s.files.find((f) => f.name.endsWith(".ino"));
+      if (!sketch) return {};
+      return { files: s.files.map((f) => (f.name === sketch.name ? { ...f, content } : f)), dirty: true };
+    }),
+  sketchContent: () => {
+    const s = get();
+    return (s.files.find((f) => f.name.endsWith(".ino")) ?? s.files[0])?.content ?? "";
+  },
+  readmeContent: () => get().files.find((f) => f.name.toLowerCase() === "readme.md")?.content ?? "",
   setBoard: (b) =>
     set((s) => ({
       past: [...s.past, snapshot(s)],

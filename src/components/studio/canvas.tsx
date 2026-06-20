@@ -35,11 +35,20 @@ function partPinPos(part: DiagramPart, pinName: string) {
 
 type Pt = { x: number; y: number };
 
-function wirePathD(a: Pt, pts: Pt[], b: Pt) {
-  if (pts.length === 0) {
-    const midY = (a.y + b.y) / 2 + Math.abs(b.x - a.x) * 0.12;
-    return `M ${a.x} ${a.y} C ${a.x} ${midY}, ${b.x} ${midY}, ${b.x} ${b.y}`;
+const GSNAP = (v: number) => Math.round(v / 8) * 8;
+
+/** Auto orthogonal (Manhattan) route, staggered per wire so parallel wires form a tidy bus. */
+function autoRoute(a: Pt, b: Pt, i: number): Pt[] {
+  const off = ((i % 16) - 8) * 8; // -64..+56, grid-aligned lane offset
+  if (Math.abs(b.x - a.x) >= Math.abs(b.y - a.y)) {
+    const midX = GSNAP((a.x + b.x) / 2 + off);
+    return [{ x: midX, y: a.y }, { x: midX, y: b.y }];
   }
+  const midY = GSNAP((a.y + b.y) / 2 + off);
+  return [{ x: a.x, y: midY }, { x: b.x, y: midY }];
+}
+
+function pathD(a: Pt, pts: Pt[], b: Pt) {
   return "M " + [a, ...pts, b].map((p) => `${p.x} ${p.y}`).join(" L ");
 }
 
@@ -263,12 +272,13 @@ export function StudioCanvas() {
       >
         {/* wires */}
         <svg className="pointer-events-none absolute left-0 top-0 overflow-visible" width={1} height={1}>
-          {wires.map((wire) => {
+          {wires.map((wire, wi) => {
             const a = wirePos(wire.from);
             const b = wirePos(wire.to);
             if (!a || !b) return null;
-            const pts = wire.points ?? [];
-            const d = wirePathD(a, pts, b);
+            const explicit = wire.points ?? [];
+            const pts = explicit.length ? explicit : autoRoute(a, b, wi);
+            const d = pathD(a, pts, b);
             const selected = selectedWireId === wire.id;
             const color = wire.color ?? "#16a34a";
             return (
@@ -281,13 +291,14 @@ export function StudioCanvas() {
                   fill="none"
                   className="pointer-events-auto cursor-pointer"
                   onPointerDown={(e) => { e.stopPropagation(); useStudio.getState().selectWire(wire.id); }}
-                  onDoubleClick={(e) => insertBend(e, wire.id, a, pts, b)}
+                  onDoubleClick={(e) => insertBend(e, wire.id, a, explicit, b)}
                 />
                 <path d={d} stroke={color} strokeWidth={selected ? 5 : 3} fill="none" strokeLinecap="round" strokeLinejoin="round" className="pointer-events-none" />
-                <circle cx={a.x} cy={a.y} r={3.5} fill={color} className="pointer-events-none" />
-                <circle cx={b.x} cy={b.y} r={3.5} fill={color} className="pointer-events-none" />
+                {/* connection terminals — clearly land on each pin */}
+                <circle cx={a.x} cy={a.y} r={4} fill={color} stroke="#fff" strokeWidth={1.2} className="pointer-events-none" />
+                <circle cx={b.x} cy={b.y} r={4} fill={color} stroke="#fff" strokeWidth={1.2} className="pointer-events-none" />
                 {selected &&
-                  pts.map((p, i) => (
+                  explicit.map((p, i) => (
                     <circle
                       key={i}
                       cx={p.x}

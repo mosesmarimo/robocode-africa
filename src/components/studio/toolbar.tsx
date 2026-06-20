@@ -35,11 +35,12 @@ export function Toolbar({ projectId, onRun, onStop }: { projectId: string; onRun
     setSaving(true);
     const st = useStudio.getState();
     try {
+      const files = st.files.map((f) => ({ name: f.name, language: f.language, content: f.content }));
       if (projectId === "new") {
-        await createProject({ title: st.title, board: st.board, diagram: st.toDiagram(), code: st.code });
+        await createProject({ title: st.title, board: st.board, diagram: st.toDiagram(), files });
         return; // redirects
       }
-      await saveProject({ projectId, title: st.title, board: st.board, diagram: st.toDiagram(), code: st.code });
+      await saveProject({ projectId, title: st.title, board: st.board, diagram: st.toDiagram(), files });
       st.markSaved();
       toast.success("Project saved");
     } catch {

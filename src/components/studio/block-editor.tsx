@@ -386,7 +386,7 @@ function MiniPalette({ onAdd }: { onAdd: (b: Block) => void }) {
 // ── Main Block Editor ───────────────────────────────────────────────────────
 
 export function BlockEditor() {
-  const setCode = useStudio((s) => s.setCode);
+  const setCode = useStudio((s) => s.setSketch);
   const [nodes, setNodes] = React.useState<BlockNode[]>(() => wrapBlocks(DEFAULT_BLOCKS));
   const [preview, setPreview] = React.useState(false);
 

@@ -21,7 +21,7 @@ export function useSimulation(projectId: string) {
     st.resetSim();
     st.clearSerial();
     st.setRunning(true);
-    const eng = new SimEngine(st.toDiagram(), st.code, {
+    const eng = new SimEngine(st.toDiagram(), st.sketchContent(), {
       onSerial: (l) => useStudio.getState().appendSerial(l),
       onError: (m) => useStudio.getState().appendSerial(m),
       onStop: () => {
