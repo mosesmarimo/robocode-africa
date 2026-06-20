@@ -37,15 +37,53 @@ type Pt = { x: number; y: number };
 
 const GSNAP = (v: number) => Math.round(v / 8) * 8;
 
-/** Auto orthogonal (Manhattan) route, staggered per wire so parallel wires form a tidy bus. */
-function autoRoute(a: Pt, b: Pt, i: number): Pt[] {
-  const off = ((i % 16) - 8) * 8; // -64..+56, grid-aligned lane offset
-  if (Math.abs(b.x - a.x) >= Math.abs(b.y - a.y)) {
-    const midX = GSNAP((a.x + b.x) / 2 + off);
-    return [{ x: midX, y: a.y }, { x: midX, y: b.y }];
+type RouteItem = { id: string; a: Pt; b: Pt };
+
+/**
+ * Lane-based orthogonal "bus" routing: each wire's horizontal run is packed into the
+ * lowest free lane (in a top or bottom channel) whose occupied x-ranges don't overlap,
+ * so no two horizontal segments ever sit on top of each other (interval-graph colouring).
+ */
+function computeBusRoutes(items: RouteItem[]): Map<string, Pt[]> {
+  const map = new Map<string, Pt[]>();
+  if (!items.length) return map;
+  let top = Infinity;
+  let bot = -Infinity;
+  for (const it of items) {
+    top = Math.min(top, it.a.y, it.b.y);
+    bot = Math.max(bot, it.a.y, it.b.y);
   }
-  const midY = GSNAP((a.y + b.y) / 2 + off);
-  return [{ x: a.x, y: midY }, { x: b.x, y: midY }];
+  const mid = (top + bot) / 2;
+  const GAP = 10;
+  const topBase = top - 22;
+  const botBase = bot + 22;
+  const topLanes: [number, number][][] = [];
+  const botLanes: [number, number][][] = [];
+
+  // pack longer spans first, then left-to-right, for tight, stable lanes
+  const sorted = [...items].sort((p, q) => {
+    const ml = (it: RouteItem) => Math.min(it.a.x, it.b.x);
+    return ml(p) - ml(q);
+  });
+
+  for (const it of sorted) {
+    const x0 = Math.min(it.a.x, it.b.x) - 6;
+    const x1 = Math.max(it.a.x, it.b.x) + 6;
+    const toTop = (it.a.y + it.b.y) / 2 <= mid;
+    const lanes = toTop ? topLanes : botLanes;
+    let L = 0;
+    for (;;) {
+      const lane = lanes[L] ?? (lanes[L] = []);
+      if (lane.every(([a, b]) => x1 < a || x0 > b)) {
+        lane.push([x0, x1]);
+        break;
+      }
+      L++;
+    }
+    const laneY = toTop ? topBase - L * GAP : botBase + L * GAP;
+    map.set(it.id, [{ x: GSNAP(it.a.x), y: laneY }, { x: GSNAP(it.b.x), y: laneY }]);
+  }
+  return map;
 }
 
 function pathD(a: Pt, pts: Pt[], b: Pt) {
@@ -253,6 +291,16 @@ export function StudioCanvas() {
     return part ? partPinPos(part, pin) : null;
   };
 
+  // lane-routed paths for every wire that has no manual bend points
+  const autoItems: RouteItem[] = [];
+  for (const w of wires) {
+    if (w.points && w.points.length) continue;
+    const a = wirePos(w.from);
+    const b = wirePos(w.to);
+    if (a && b) autoItems.push({ id: w.id, a, b });
+  }
+  const routeMap = computeBusRoutes(autoItems);
+
   return (
     <div
       ref={containerRef}
@@ -272,12 +320,12 @@ export function StudioCanvas() {
       >
         {/* wires */}
         <svg className="pointer-events-none absolute left-0 top-0 overflow-visible" width={1} height={1}>
-          {wires.map((wire, wi) => {
+          {wires.map((wire) => {
             const a = wirePos(wire.from);
             const b = wirePos(wire.to);
             if (!a || !b) return null;
             const explicit = wire.points ?? [];
-            const pts = explicit.length ? explicit : autoRoute(a, b, wi);
+            const pts = explicit.length ? explicit : routeMap.get(wire.id) ?? [];
             const d = pathD(a, pts, b);
             const selected = selectedWireId === wire.id;
             const color = wire.color ?? "#16a34a";

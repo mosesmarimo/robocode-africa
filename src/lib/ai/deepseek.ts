@@ -11,6 +11,8 @@ export interface ValidateInput {
   connections: { from: string; to: string }[];
   code: string;
   readme: string;
+  /** PNG data URL of the circuit diagram */
+  image?: string;
 }
 
 export interface ValidateResult {
@@ -57,6 +59,14 @@ export async function validateCircuit(input: ValidateInput): Promise<ValidateRes
     input.readme.slice(0, 4000),
   ].join("\n");
 
+  // Send the diagram screenshot alongside the text when available (multimodal).
+  const userContent = input.image
+    ? [
+        { type: "text", text: user + "\n\nA rendered screenshot of the circuit diagram is attached — use it to check the layout and connections." },
+        { type: "image_url", image_url: { url: input.image } },
+      ]
+    : user;
+
   try {
     const res = await fetch(ENDPOINT, {
       method: "POST",
@@ -65,7 +75,7 @@ export async function validateCircuit(input: ValidateInput): Promise<ValidateRes
         model: MODEL,
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: user },
+          { role: "user", content: userContent },
         ],
         stream: false,
       }),

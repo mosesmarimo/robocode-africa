@@ -9,6 +9,7 @@ import { partLabel } from "@/lib/studio/readme";
 import { getBoard } from "@/lib/domain/boards";
 import { Button } from "@/components/ui/button";
 import { validateProject } from "@/lib/studio/validate-action";
+import { diagramToPng } from "@/lib/studio/diagram-image";
 
 export function Description() {
   const readme = useStudio((s) => s.readmeContent());
@@ -24,6 +25,7 @@ export function Description() {
     const st = useStudio.getState();
     setResult(null);
     start(async () => {
+      const image = (await diagramToPng(st.parts, st.wires, st.board)) ?? undefined;
       const r = await validateProject({
         title: st.title,
         board: getBoard(st.board).name,
@@ -31,6 +33,7 @@ export function Description() {
         connections: st.wires.map((w) => ({ from: w.from, to: w.to })),
         code: st.sketchContent(),
         readme: st.readmeContent(),
+        image,
       });
       setResult(r.text);
     });
