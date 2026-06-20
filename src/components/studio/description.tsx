@@ -1,6 +1,5 @@
 "use client";
 
-import * as React from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Sparkles, Loader2 } from "lucide-react";
@@ -8,36 +7,16 @@ import { useStudio } from "@/lib/studio/store";
 import { partLabel } from "@/lib/studio/readme";
 import { getBoard } from "@/lib/domain/boards";
 import { Button } from "@/components/ui/button";
-import { validateProject } from "@/lib/studio/validate-action";
-import { diagramToPng } from "@/lib/studio/diagram-image";
+import { runValidation } from "@/lib/studio/run-validation";
 
 export function Description() {
   const readme = useStudio((s) => s.readmeContent());
   const parts = useStudio((s) => s.parts);
   const wires = useStudio((s) => s.wires);
   const board = useStudio((s) => s.board);
+  const pending = useStudio((s) => s.aiValidating);
+  const result = useStudio((s) => s.aiResult);
   const components = parts.filter((p) => p.id !== "mcu" && !p.type.startsWith("__board__"));
-
-  const [pending, start] = React.useTransition();
-  const [result, setResult] = React.useState<string | null>(null);
-
-  function validate() {
-    const st = useStudio.getState();
-    setResult(null);
-    start(async () => {
-      const image = (await diagramToPng(st.parts, st.wires, st.board)) ?? undefined;
-      const r = await validateProject({
-        title: st.title,
-        board: getBoard(st.board).name,
-        components: components.map((p) => partLabel(p.type)),
-        connections: st.wires.map((w) => ({ from: w.from, to: w.to })),
-        code: st.sketchContent(),
-        readme: st.readmeContent(),
-        image,
-      });
-      setResult(r.text);
-    });
-  }
 
   return (
     <div className="mx-auto max-w-3xl px-6 py-8">
@@ -46,7 +25,7 @@ export function Description() {
           <p className="flex items-center gap-1.5 font-display font-semibold"><Sparkles className="size-4 text-primary" /> AI circuit validation</p>
           <p className="text-sm text-muted-foreground">Have DeepSeek check that your wiring and code match.</p>
         </div>
-        <Button variant="gradient" onClick={validate} disabled={pending}>
+        <Button variant="gradient" onClick={() => runValidation()} disabled={pending}>
           {pending ? <><Loader2 className="size-4 animate-spin" /> Checking…</> : "Validate with AI"}
         </Button>
       </div>

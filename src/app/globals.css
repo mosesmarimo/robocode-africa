@@ -198,3 +198,12 @@
 .md-body th { background: color-mix(in srgb, var(--muted) 70%, transparent); font-weight: 600; }
 .md-body blockquote { border-left: 3px solid var(--border); padding-left: 0.9rem; color: var(--muted-foreground); margin: 0 0 0.9rem; }
 .md-body hr { border: 0; border-top: 1px solid var(--border); margin: 1.5rem 0; }
+
+/* Dark-surface variant (e.g. AI result on the canvas) */
+.md-dark, .md-dark * { color: #e8edf9; }
+.md-dark a { color: #93c5fd; }
+.md-dark code { background: rgba(255, 255, 255, 0.12); }
+.md-dark pre { background: rgba(255, 255, 255, 0.08); }
+.md-dark th { background: rgba(255, 255, 255, 0.07); }
+.md-dark th, .md-dark td { border-color: rgba(255, 255, 255, 0.14); }
+.md-dark blockquote { border-left-color: rgba(255, 255, 255, 0.2); color: #b9c4dc; }

@@ -42,6 +42,10 @@ export interface StudioState {
   pinStates: Record<string, number>; // logical pin label -> value
   partState: Record<string, Record<string, number | string | boolean>>; // partId -> sim outputs
 
+  // AI validation (shared between the canvas button and the Description tab)
+  aiResult: string | null;
+  aiValidating: boolean;
+
   past: Snapshot[];
   future: Snapshot[];
 
@@ -74,6 +78,8 @@ export interface StudioState {
   undo: () => void;
   redo: () => void;
 
+  setAiResult: (r: string | null) => void;
+  setAiValidating: (b: boolean) => void;
   setRunning: (r: boolean) => void;
   appendSerial: (s: string) => void;
   clearSerial: () => void;
@@ -106,6 +112,8 @@ export const useStudio = create<StudioState>((set, get) => ({
   serial: [],
   pinStates: {},
   partState: {},
+  aiResult: null,
+  aiValidating: false,
   past: [],
   future: [],
 
@@ -124,6 +132,8 @@ export const useStudio = create<StudioState>((set, get) => ({
       future: [],
       selectedId: null,
       selectedWireId: null,
+      aiResult: null,
+      aiValidating: false,
     });
   },
 
@@ -269,6 +279,8 @@ export const useStudio = create<StudioState>((set, get) => ({
     set({ parts: next.parts, wires: next.wires, future: s.future.slice(1), past: [...s.past, snapshot(s)], dirty: true });
   },
 
+  setAiResult: (r) => set({ aiResult: r }),
+  setAiValidating: (b) => set({ aiValidating: b }),
   setRunning: (r) => set({ running: r }),
   appendSerial: (line) => set((s) => ({ serial: [...s.serial.slice(-400), line] })),
   clearSerial: () => set({ serial: [] }),

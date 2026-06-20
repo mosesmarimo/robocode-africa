@@ -11,6 +11,7 @@ import { WokwiPart } from "@/components/studio/wokwi-part";
 import { Breadboard } from "@/components/studio/breadboard";
 import { SimOverlay } from "@/components/studio/sim-overlay";
 import { AddComponentMenu } from "@/components/studio/add-component-menu";
+import { CanvasAiValidate } from "@/components/studio/ai-validate";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuShortcut, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -446,6 +447,8 @@ export function StudioCanvas() {
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+
+      <CanvasAiValidate />
 
       <ZoomControls zoom={zoom} setZoom={setZoom} reset={fitView} />
     </div>
