@@ -11,7 +11,8 @@
 ## Global Constraints
 
 - Heed `AGENTS.md`: this Next.js may differ from training data — read the relevant guide in `node_modules/next/dist/docs/` before using dynamic import / client-component patterns.
-- No Prisma schema changes and no migrations. `Lesson.body` is already `Json`.
+- The ONLY schema change is the three `CodeFile` explanation columns in Task 6C (one migration). All course/lesson work needs no migration — `Lesson.body` is already `Json`.
+- Explanation caching hashes content with **sha256 hex of the UTF-8 string** on both the backend (`node:crypto`) and the studio server component, so comparisons are consistent.
 - Supported coding languages (canonical ids): `python`, `javascript`, `typescript`, `html`, `css`, `go`, `rust`, `cpp`, `csharp`, `sql`. Robotics languages: `arduino`, `micropython`.
 - Studio loads a snippet only into the editor — **never executes server-side**. Decode is wrapped in try/catch with a length cap; malformed → blank new project.
 - Inline SVG / raw markdown HTML is rendered ONLY for seed-authored (trusted) content. Do not enable raw-HTML passthrough for user-supplied content.
@@ -676,6 +677,323 @@ git commit -m "fix(studio): polish Code Explainer markdown formatting"
 
 ---
 
+## SLICE A2 — Persisted, cache-invalidated code explanations
+
+### Task 6C: Schema — explanation columns on CodeFile
+
+**Files:**
+- Modify: `robocode-backend/prisma/schema.prisma` (the `CodeFile` model)
+
+- [ ] **Step 1: Add columns**
+
+In the `CodeFile` model, add after the existing `content` field:
+```prisma
+  explanation     String?
+  explanationHash String?   // sha256 hex of the content this explanation was generated from
+  explanationAt   DateTime?
+```
+
+- [ ] **Step 2: Create the migration**
+
+Run (from `robocode-backend`):
+```bash
+pnpm --filter robocode-backend exec prisma migrate dev --name codefile-explanation
+```
+Expected: a new migration under `robocode-backend/prisma/migrations/*` and the Prisma client regenerated. If the DB is unavailable in this environment, run `pnpm --filter robocode-backend exec prisma generate` and create the migration SQL manually under a new timestamped folder mirroring the three `ALTER TABLE "CodeFile" ADD COLUMN` statements.
+
+- [ ] **Step 3: Commit**
+```bash
+git add robocode-backend/prisma/schema.prisma robocode-backend/prisma/migrations
+git commit -m "feat(db): persist code explanation on CodeFile"
+```
+
+---
+
+### Task 6D: Backend — cache explanations in /ai/explain-code
+
+**Files:**
+- Modify: `robocode-backend/src/modules/ai/dto.ts` (`explainCodeSchema`)
+- Modify: `robocode-backend/src/modules/ai/ai.controller.ts` (pass `projectId`)
+- Modify: `robocode-backend/src/modules/ai/ai.service.ts` (`explainCode`, `ExplainCodeResult`)
+- Test: `robocode-backend/src/modules/ai/ai.service.spec.ts` (or the repo's existing test file for ai)
+
+**Interfaces:**
+- Consumes: `PrismaService` (already injected in `AiService`); role helpers from `@/domain/roles` (e.g. `isStaff`).
+- Produces: `explainCode(user, language, code, filename?, projectId?)` returning `ExplainCodeResult & { cached?: boolean }`.
+
+- [ ] **Step 1: Extend the DTO**
+
+In `dto.ts`, add `projectId` to `explainCodeSchema`:
+```ts
+export const explainCodeSchema = z.object({
+  language: z.string().min(1),
+  code: z.string().min(1),
+  filename: z.string().max(120).optional(),
+  projectId: z.string().max(40).optional(),
+});
+```
+
+- [ ] **Step 2: Pass projectId from the controller**
+
+In `ai.controller.ts`, update the `explainCode` handler:
+```ts
+  explainCode(@CurrentUser() user: AuthUser, @Body(new ZodPipe(explainCodeSchema)) body: ExplainCodeInput) {
+    return this.ai.explainCode(user, body.language, body.code, body.filename, body.projectId);
+  }
+```
+
+- [ ] **Step 3: Add `cached` to the result type**
+
+In `ai.service.ts` (or wherever `ExplainCodeResult` is declared), add `cached?: boolean;`.
+
+- [ ] **Step 4: Write the failing test**
+
+Add a test that a second identical explain call does not invoke the AI. Sketch (adapt to the repo's Nest testing setup; mock `rawChat` and `prisma.codeFile`):
+```ts
+it("returns the cached explanation without calling the AI on the second request", async () => {
+  // First call: AI returns text, persists explanation + hash.
+  // Second call with identical code: explanationHash matches → cached:true, rawChat NOT called again.
+  expect(second.cached).toBe(true);
+  expect(rawChatSpy).toHaveBeenCalledTimes(1);
+});
+it("re-fetches when the code changed (hash mismatch)", async () => {
+  // stored explanationHash != sha256(newCode) → AI called again, cached:false
+  expect(third.cached).toBe(false);
+  expect(rawChatSpy).toHaveBeenCalledTimes(2);
+});
+```
+
+- [ ] **Step 5: Run test to verify it fails**
+
+Run: `pnpm --filter robocode-backend exec jest ai.service` (or the project's test command).
+Expected: FAIL.
+
+- [ ] **Step 6: Implement caching in `explainCode`**
+
+Add at the top of `ai.service.ts`: `import { createHash } from "node:crypto";` and (if not present) `import { isStaff } from "../../domain/roles";` (verify the correct path — match how other modules import it).
+
+Add a private read-access helper:
+```ts
+  private canReadProject(user: AuthUser, p: { ownerId: string; tenantId: string | null; visibility: string }): boolean {
+    if (p.ownerId === user.id) return true;
+    if (p.visibility === "public") return true;
+    if (p.tenantId && p.tenantId === user.tenantId) return p.visibility !== "private" || isStaff(user.role);
+    return false;
+  }
+```
+
+Replace the body of `explainCode` with:
+```ts
+  async explainCode(user: AuthUser | null, language: string, code: string, filename?: string, projectId?: string): Promise<ExplainCodeResult> {
+    const cfg = this.resolveConfig(user);
+    const hash = createHash("sha256").update(code).digest("hex");
+
+    // Try the persisted cache first.
+    let codeFile: { id: string; explanation: string | null; explanationHash: string | null } | null = null;
+    if (user && projectId && projectId !== "new" && filename) {
+      const project = await this.prisma.project.findUnique({
+        where: { id: projectId },
+        select: { ownerId: true, tenantId: true, visibility: true },
+      });
+      if (project && this.canReadProject(user, project)) {
+        codeFile = await this.prisma.codeFile.findFirst({
+          where: { projectId, filename },
+          select: { id: true, explanation: true, explanationHash: true },
+        });
+        if (codeFile?.explanation && codeFile.explanationHash === hash) {
+          return { ok: true, configured: true, explanation: codeFile.explanation, cached: true };
+        }
+      }
+    }
+
+    if (!cfg.apiKey) {
+      return { ok: false, configured: false, text: "AI isn't configured yet. Add an AI model and API key in Settings (or ask your school admin)." };
+    }
+    const label = CODE_LANG_LABELS[language] ?? language;
+    const prompt = `Language: ${label}${filename ? `\nFile: ${filename}` : ""}\n\nExplain this code line by line:\n\`\`\`\n${code.slice(0, 16000)}\n\`\`\``;
+    try {
+      const raw = (await this.rawChat(EXPLAIN_CODE_SYSTEM, prompt, cfg, false))?.trim();
+      if (!raw) return { ok: false, configured: true, text: "AI request failed." };
+      if (codeFile) {
+        await this.prisma.codeFile.update({
+          where: { id: codeFile.id },
+          data: { explanation: raw, explanationHash: hash, explanationAt: new Date() },
+        });
+      }
+      return { ok: true, configured: true, explanation: raw, cached: false };
+    } catch (e) {
+      return { ok: false, configured: true, text: `Could not reach the AI provider (${cfg.provider}): ${(e as Error).message}` };
+    }
+  }
+```
+
+- [ ] **Step 7: Run tests to verify they pass**
+
+Run: `pnpm --filter robocode-backend exec jest ai.service` → PASS. Then `pnpm --filter robocode-backend exec tsc --noEmit` → PASS.
+
+- [ ] **Step 8: Commit**
+```bash
+git add robocode-backend/src/modules/ai/dto.ts robocode-backend/src/modules/ai/ai.controller.ts robocode-backend/src/modules/ai/ai.service.ts robocode-backend/src/modules/ai/ai.service.spec.ts
+git commit -m "feat(ai): cache code explanations per file with hash invalidation"
+```
+
+---
+
+### Task 6E: Frontend — auto-display persisted explanation + edit invalidation
+
+**Files:**
+- Modify: `robocode-frontend/src/lib/studio/coding-actions.ts` (`explainCodeAction`, `ExplainCodeResult`)
+- Modify: `robocode-frontend/src/app/studio/[projectId]/page.tsx` (compute + pass explanations)
+- Modify: `robocode-frontend/src/components/studio/studio-app.tsx` (`StudioInitial`, thread prop)
+- Modify: `robocode-frontend/src/components/studio/coding-studio.tsx` (state, auto-show, reuse/refetch)
+
+**Interfaces:**
+- Consumes: backend `cached?: boolean` field; `decodeStudioCode` unaffected.
+- Produces: `StudioInitial.codingExplanations?: Record<string, { text: string; current: boolean }>`; `CodingStudio` prop `initialExplanations`.
+
+- [ ] **Step 1: Pass projectId from the action**
+
+In `coding-actions.ts`, add `cached?: boolean;` to `ExplainCodeResult`, and update `explainCodeAction`:
+```ts
+export async function explainCodeAction(language: string, code: string, filename?: string, projectId?: string): Promise<ExplainCodeResult> {
+  try {
+    return await apiPost<ExplainCodeResult>("/ai/explain-code", { language, code, filename, projectId });
+  } catch (e) {
+    if (e instanceof ApiError) return { ok: false, configured: true, text: e.message };
+    throw e;
+  }
+}
+```
+
+- [ ] **Step 2: Compute explanations in the studio page**
+
+In `studio/[projectId]/page.tsx`:
+1. Add `import { createHash } from "crypto";` at the top.
+2. Extend the `StudioCodeFile` interface:
+```tsx
+interface StudioCodeFile {
+  filename: string;
+  content: string;
+  explanation?: string | null;
+  explanationHash?: string | null;
+}
+```
+3. In the saved-project branch (after `project` is fetched), build the map and pass it:
+```tsx
+  const codingExplanations: Record<string, { text: string; current: boolean }> = {};
+  if (kind === "coding") {
+    for (const f of project.codeFiles) {
+      if (f.explanation) {
+        const current = f.explanationHash === createHash("sha256").update(f.content).digest("hex");
+        codingExplanations[f.filename] = { text: f.explanation, current };
+      }
+    }
+  }
+```
+Then add `codingExplanations` to the `initial` prop passed to `<StudioClient>` in that branch:
+```tsx
+        codingExplanations: kind === "coding" ? codingExplanations : undefined,
+```
+
+- [ ] **Step 3: Extend StudioInitial and thread the prop**
+
+In `studio-app.tsx`:
+1. Add to `StudioInitial`:
+```tsx
+  /** For coding projects: persisted explanations per file, with whether they match current content. */
+  codingExplanations?: Record<string, { text: string; current: boolean }>;
+```
+2. Pass it to `CodingStudio`:
+```tsx
+          <CodingStudio projectId={initial.projectId} projectKind={initial.kind ?? "robotics"} initialFiles={initial.codingFiles} initialExplanations={initial.codingExplanations} />
+```
+
+- [ ] **Step 4: Auto-display + reuse/refetch in CodingStudio**
+
+In `coding-studio.tsx`:
+1. Add `initialExplanations` to the props:
+```tsx
+export function CodingStudio({
+  projectId,
+  projectKind = "robotics",
+  initialFiles,
+  initialExplanations,
+}: {
+  projectId: string;
+  projectKind?: "robotics" | "coding";
+  initialFiles?: CodeFile[];
+  initialExplanations?: Record<string, { text: string; current: boolean }>;
+}) {
+```
+2. Add explanation memory state (after the `output`/`busy` state declarations, ~line 58):
+```tsx
+  const [explained, setExplained] = React.useState<Record<string, { text: string; content: string }>>(() => {
+    const seed: Record<string, { text: string; content: string }> = {};
+    if (isCodingProject && initialExplanations) {
+      for (const f of initialFiles!) {
+        const e = initialExplanations[f.name];
+        if (e?.current) seed[f.name] = { text: e.text, content: f.content };
+      }
+    }
+    return seed;
+  });
+```
+3. Auto-show the active file's current explanation once on mount (add a new effect near the other effects, ~line 102):
+```tsx
+  const didAutoShow = React.useRef(false);
+  React.useEffect(() => {
+    if (didAutoShow.current) return;
+    didAutoShow.current = true;
+    const e = explained[activeFile];
+    if (e && e.content === active.content) setOutput({ mode: "explain", text: e.text });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+```
+4. Replace the `explain` function (~lines 166-176) with a reuse-then-fetch version:
+```tsx
+  async function explain(thenSpeak = false) {
+    const cached = explained[active.name];
+    if (cached && cached.content === active.content) {
+      setOutput({ mode: "explain", text: cached.text });
+      if (thenSpeak) void speak(cached.text);
+      return;
+    }
+    setBusy("explain");
+    setOutput({ mode: "explain", text: "Explaining…" });
+    try {
+      const r = await explainCodeAction(lang, active.content, active.name, isCodingProject ? projectId : undefined);
+      const text = r.ok && r.explanation ? r.explanation : r.text || "Couldn't explain.";
+      setOutput({ mode: "explain", text });
+      if (r.ok && r.explanation) {
+        setExplained((m) => ({ ...m, [active.name]: { text: r.explanation as string, content: active.content } }));
+        if (thenSpeak) void speak(r.explanation);
+      }
+    } finally {
+      setBusy(null);
+    }
+  }
+```
+(Keep the existing `speak`-on-explain wiring at line ~215-216 working: it calls `explain(true)` when there's no explanation yet — unchanged.)
+
+- [ ] **Step 5: Typecheck**
+
+Run: `pnpm --filter robocode-frontend exec tsc --noEmit` → PASS.
+
+- [ ] **Step 6: Manual verification (dev server, requires AI configured + a saved coding project)**
+
+- Open a saved coding project, click **Code Explainer** → explanation appears (network call).
+- Click **Clear**, then **Code Explainer** again → explanation reappears instantly (the backend returns `cached:true`; in-memory reuse means no spinner).
+- Reload the page → the Explanation panel shows the persisted explanation automatically.
+- Edit the code, click **Code Explainer** → a fresh explanation is fetched (hash mismatch) and re-persisted.
+
+- [ ] **Step 7: Commit**
+```bash
+git add robocode-frontend/src/lib/studio/coding-actions.ts robocode-frontend/src/app/studio/[projectId]/page.tsx robocode-frontend/src/components/studio/studio-app.tsx robocode-frontend/src/components/studio/coding-studio.tsx
+git commit -m "feat(studio): auto-display persisted code explanation, refetch on edit"
+```
+
+---
+
 ## SLICE B — Content infrastructure + demo course rewrites
 
 ### Task 7: Content module infrastructure
@@ -973,12 +1291,13 @@ Repeat Tasks 12-22 for `javascript, typescript, html, css, go, rust, cpp, csharp
 - [ ] **Open in Studio (robotics).** On an Arduino lesson code card, click the button. Expected: Robotics Studio opens with `sketch.ino` prefilled.
 - [ ] **Studio title.** Confirm the studio header reads "RoboCode Studio".
 - [ ] **Code Explainer.** In a coding project, click Code Explainer — the Explanation panel shows formatted markdown (styled bullets, inline-code chips, no literal backticks), consistent with the lessons.
+- [ ] **Explanation persistence.** Re-clicking Code Explainer on unchanged code reuses the stored explanation (no AI call); reloading the project auto-shows it; editing the code then clicking re-fetches a fresh one.
 - [ ] **Typecheck both packages** pass; **no new lint errors** in touched files.
 
 ---
 
 ## Self-Review notes (coverage map)
 
-- Spec §1 rich blocks → Tasks 1,3,4. §2 Open-in-Studio → Tasks 2,5. §3 twelve courses → Tasks 11-22 (+7 infra). §4 demo rewrites → Tasks 8-10. §5 studio title → Task 6. §6 studio Code Explainer formatting → Task 6B. "Nicely formatted HTML/CSS for explanations" → Task 1 `.prose-lesson` (lessons) + Task 6B `md-body` (studio AI panels) + Task 3 `Markdown`. Visuals (SVG+Mermaid) → Task 3 components + `_assets.ts` + authored per course.
+- Spec §1 rich blocks → Tasks 1,3,4. §2 Open-in-Studio → Tasks 2,5. §3 twelve courses → Tasks 11-22 (+7 infra). §4 demo rewrites → Tasks 8-10. §5 studio title → Task 6. §6 studio Code Explainer formatting → Task 6B. §7 persisted explanations → Tasks 6C (schema), 6D (backend cache), 6E (frontend auto-display + invalidation). "Nicely formatted HTML/CSS for explanations" → Task 1 `.prose-lesson` (lessons) + Task 6B `md-body` (studio AI panels) + Task 3 `Markdown`. Visuals (SVG+Mermaid) → Task 3 components + `_assets.ts` + authored per course.
 - Dependencies introduced (`mermaid`, `react-syntax-highlighter`) installed in Task 1 before first use in Task 3.
 - All `code` block language ids align with `studioHref` routing (coding vs robotics) — verified against canonical id list in Global Constraints.

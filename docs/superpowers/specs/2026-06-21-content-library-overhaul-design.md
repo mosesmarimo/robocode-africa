@@ -196,12 +196,49 @@ The deliverable here is therefore **verify + polish + consistency**:
 - Studio header shows "RoboCode Studio".
 - Frontend builds/typechecks; no new lint errors in touched files.
 
+### 7. Persisted, cache-invalidated code explanations
+
+When the Code Explainer fetches an explanation from the AI, **persist it in the database** so
+subsequent clicks reuse it instead of hitting the AI provider. Invalidate when the code
+changes, and auto-display a current explanation when the Studio loads.
+
+**Data model:** add three nullable columns to `CodeFile` (requires one migration):
+`explanation String?`, `explanationHash String?` (sha256 hex of the explained content),
+`explanationAt DateTime?`. One explanation per file; no new table needed.
+
+**Backend (`/ai/explain-code`):** the request gains an optional `projectId`. The service:
+1. Computes `hash = sha256(code)`.
+2. If `projectId` + `filename` resolve to a `CodeFile` the user may read, and its stored
+   `explanationHash === hash`, returns the stored `explanation` with `cached: true` — **no AI
+   call**.
+3. Otherwise calls the AI as today, then writes `explanation`/`explanationHash`/`explanationAt`
+   onto the `CodeFile`, returning `cached: false`.
+
+`ExplainCodeResult` gains `cached?: boolean`.
+
+**Auto-display & invalidation (frontend):**
+- `getProject` already returns full `codeFiles`, so the studio page computes per file
+  `explanationCurrent = explanation != null && explanationHash === sha256(content)` and passes a
+  `{ filename → { text, current } }` map into the Coding Studio.
+- On load, if the active file has a `current` explanation, the Explanation panel shows it
+  automatically (no click, no network).
+- The Coding Studio keeps an in-memory `explained[file] = { text, content }`. Clicking Code
+  Explainer with **unchanged** content reuses the in-memory text (no network); after an **edit**
+  the content no longer matches, so the click re-fetches — the backend's hash check forces a
+  fresh AI pull and re-persists. This is the "flag reset on edit" behaviour.
+- Snippet/unsaved projects (`projectId === "new"`) skip persistence (pass no `projectId`).
+
+Hashing uses sha256 hex of the UTF-8 content on both sides (Node `crypto` in the backend and in
+the studio server component) so the comparison is consistent.
+
 ## Out of scope
 
 - No admin authoring UI for rich blocks (content is seed-authored).
 - No code execution from the Open-in-Studio path (editor text only).
 - No changes to enrollment/points logic.
-- No Prisma schema/migration changes.
+- The only schema change is the three `CodeFile` explanation columns in §7; the rest of the
+  work needs no migration (`Lesson.body` is already `Json`).
+- Validation results (Validate with AI) are NOT persisted — only Code Explainer (§7).
 
 ## Risks / notes
 
