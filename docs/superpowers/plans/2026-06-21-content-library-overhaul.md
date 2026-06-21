@@ -10,9 +10,21 @@
 
 ## Global Constraints
 
-- Heed `AGENTS.md`: this Next.js may differ from training data — read the relevant guide in `node_modules/next/dist/docs/` before using dynamic import / client-component patterns.
-- The ONLY schema change is the three `CodeFile` explanation columns in Task 6C (one migration). All course/lesson work needs no migration — `Lesson.body` is already `Json`.
+### Repo & workflow conventions (post-investigation — these OVERRIDE any per-task command that conflicts)
+
+- **Three independent git repos.** `robocode-frontend`, `robocode-backend`, `robocode-mobile` are each their OWN git repo (own `package.json` + `pnpm-lock.yaml`), currently on `main`. The root `/Users/marimo/Dev/robocode` is a stale monorepo wrapper — **do NOT commit package code to the root repo.**
+- **Commit inside the package repo, on the feature branch `feature/content-library`** (created in both `robocode-frontend` and `robocode-backend` before Task 1). Every `git add`/`git commit` in a task runs with the package repo as cwd — i.e. prefix with `git -C robocode-frontend …` or `git -C robocode-backend …`, and only stage the exact files the task changed (never `git add -A`).
+- **Run package tooling inside the package repo.** Frontend: `cd robocode-frontend && pnpm <cmd>` (e.g. `pnpm add mermaid`, `pnpm typecheck`, `pnpm lint`). Backend: `cd robocode-backend && pnpm <cmd>` (`pnpm typecheck`, `pnpm lint`, `pnpm db:seed`). Do NOT use root `--filter`.
+- **No test framework exists** in either repo (frontend: only Playwright; backend: none). Do NOT add vitest/jest. Where a task says "write a failing test", instead verify with: (a) `pnpm typecheck` (= `tsc --noEmit`), (b) `pnpm lint`, and (c) a targeted runtime sanity check via `node -e "…"` / `tsx -e "…"` for pure functions. The task reviewer is the correctness gate.
+
+### Project rules & data
+
+- Heed each repo's `AGENTS.md`: this Next.js (v16.2.9) may differ from training data — read the relevant guide in `robocode-frontend/node_modules/next/dist/docs/` before using dynamic import / client-component patterns.
+- **Reuse the existing `.md-body` CSS class** (defined in `robocode-frontend/src/app/globals.css`) for lesson prose. Do NOT introduce a new `.prose-lesson` class — `md-body` is already the polished markdown treatment used by the Code Explainer. Lesson markdown blocks, callouts, and the explainer all share `md-body`.
+- The ONLY schema change is the three `CodeFile` explanation columns in Task 6C. Backend uses **`prisma db push` with a hand-authored migration file** matching the existing `prisma/migrations/YYYYMMDDHHMMSS_name/migration.sql` convention (9 already exist) — NOT `prisma migrate dev`. All course/lesson work needs no schema change — `Lesson.body` is already `Json`.
+- `explainCodeSchema` already uses `language: z.enum(CODE_LANGUAGES)` and `code: z.string().min(1).max(20000)`; only ADD `projectId` — keep the enum. `ExplainCodeResult` is declared in `robocode-backend/src/modules/ai/dto.ts` (not the service).
 - Explanation caching hashes content with **sha256 hex of the UTF-8 string** on both the backend (`node:crypto`) and the studio server component, so comparisons are consistent.
+- Backend seed command: `pnpm db:seed` (= `tsx prisma/seed.ts`); full reset: `pnpm db:reset`. Frontend has no `.prose-lesson`; lesson page still uses the inline `renderBlock` (to be replaced).
 - Supported coding languages (canonical ids): `python`, `javascript`, `typescript`, `html`, `css`, `go`, `rust`, `cpp`, `csharp`, `sql`. Robotics languages: `arduino`, `micropython`.
 - Studio loads a snippet only into the editor — **never executes server-side**. Decode is wrapped in try/catch with a length cap; malformed → blank new project.
 - Inline SVG / raw markdown HTML is rendered ONLY for seed-authored (trusted) content. Do not enable raw-HTML passthrough for user-supplied content.
@@ -56,65 +68,43 @@
 
 ## SLICE A — Plumbing
 
-### Task 1: Add dependencies and lesson prose styles
+### Task 1: Add frontend dependencies (mermaid + syntax highlighter)
 
 **Files:**
-- Modify: `robocode-frontend/package.json`
-- Modify: `robocode-frontend/src/app/globals.css`
+- Modify: `robocode-frontend/package.json`, `robocode-frontend/pnpm-lock.yaml`
 
-- [ ] **Step 1: Install frontend deps**
+No CSS in this task — lessons reuse the existing `.md-body` class (see Global Constraints). The `md-body` polish for the explainer's walkthrough lives in Task 6B.
 
-Run from repo root:
+- [ ] **Step 1: Install deps inside the frontend repo**
+
 ```bash
-pnpm --filter robocode-frontend add mermaid react-syntax-highlighter
-pnpm --filter robocode-frontend add -D @types/react-syntax-highlighter
+cd robocode-frontend
+pnpm add mermaid react-syntax-highlighter
+pnpm add -D @types/react-syntax-highlighter
 ```
-Expected: lockfile + `robocode-frontend/package.json` updated, no errors.
+Expected: `robocode-frontend/package.json` + `robocode-frontend/pnpm-lock.yaml` updated, no errors.
 
-- [ ] **Step 2: Add `.prose-lesson` styles**
+- [ ] **Step 2: Verify it still typechecks**
 
-Append to `robocode-frontend/src/app/globals.css` (place after the existing base layer rules):
-```css
-/* Rich lesson typography — styles markdown-rendered HTML in the Content Library. */
-.prose-lesson { @apply text-foreground/90 leading-relaxed; }
-.prose-lesson > * + * { @apply mt-4; }
-.prose-lesson h1 { @apply font-display text-2xl font-bold mt-8 mb-2; }
-.prose-lesson h2 { @apply font-display text-xl font-bold mt-7 mb-2; }
-.prose-lesson h3 { @apply font-display text-lg font-bold mt-5 mb-1; }
-.prose-lesson p { @apply leading-relaxed; }
-.prose-lesson ul { @apply list-disc pl-6 space-y-1; }
-.prose-lesson ol { @apply list-decimal pl-6 space-y-1; }
-.prose-lesson li { @apply leading-relaxed; }
-.prose-lesson a { @apply text-primary underline underline-offset-2 hover:opacity-80; }
-.prose-lesson blockquote { @apply border-l-4 border-primary/40 pl-4 italic text-foreground/80; }
-.prose-lesson code { @apply rounded bg-muted px-1.5 py-0.5 font-mono text-[0.85em]; }
-.prose-lesson table { @apply w-full border-collapse text-sm; }
-.prose-lesson th, .prose-lesson td { @apply border border-border px-3 py-1.5 text-left; }
-.prose-lesson th { @apply bg-muted font-semibold; }
-.prose-lesson strong { @apply font-semibold text-foreground; }
-```
-
-- [ ] **Step 3: Verify build still compiles**
-
-Run:
 ```bash
-pnpm --filter robocode-frontend exec tsc --noEmit
+cd robocode-frontend && pnpm typecheck
 ```
-Expected: PASS (no new errors). If the project uses a different typecheck script, use `pnpm --filter robocode-frontend run typecheck`.
+Expected: PASS (no new errors).
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 3: Commit (in the frontend repo, on feature/content-library)**
 ```bash
-git add robocode-frontend/package.json pnpm-lock.yaml robocode-frontend/src/app/globals.css
-git commit -m "feat(learn): add mermaid + syntax highlighter deps and prose-lesson styles"
+git -C robocode-frontend add package.json pnpm-lock.yaml
+git -C robocode-frontend commit -m "feat(learn): add mermaid + react-syntax-highlighter deps"
 ```
 
 ---
 
-### Task 2: Open-in-Studio URL helper (TDD)
+### Task 2: Open-in-Studio URL helper
+
+No test framework in this repo — verify with typecheck + a `node`/`tsx` round-trip sanity check.
 
 **Files:**
 - Create: `robocode-frontend/src/lib/studio/open-in-studio.ts`
-- Test: `robocode-frontend/src/lib/studio/open-in-studio.test.ts`
 
 **Interfaces:**
 - Produces:
@@ -124,53 +114,7 @@ git commit -m "feat(learn): add mermaid + syntax highlighter deps and prose-less
   - `STUDIO_CODE_MAX = 8000` — max decoded length.
   - `ROBOTICS_LANGS = ["arduino", "micropython"]`.
 
-- [ ] **Step 1: Write the failing test**
-
-```ts
-import { describe, it, expect } from "vitest";
-import { encodeStudioCode, decodeStudioCode, studioHref } from "./open-in-studio";
-
-describe("open-in-studio", () => {
-  it("round-trips code through encode/decode", () => {
-    const code = `print("Héllo 🌍")\n# done`;
-    expect(decodeStudioCode(encodeStudioCode(code))).toBe(code);
-  });
-
-  it("produces url-safe output (no +/=)", () => {
-    const enc = encodeStudioCode("a".repeat(50) + "?&=#");
-    expect(enc).not.toMatch(/[+/=]/);
-  });
-
-  it("returns null for malformed input", () => {
-    expect(decodeStudioCode("!!!not base64!!!")).toBeNull();
-  });
-
-  it("returns null for oversized decoded content", () => {
-    expect(decodeStudioCode(encodeStudioCode("x".repeat(9000)))).toBeNull();
-  });
-
-  it("builds a coding studio href for python", () => {
-    const href = studioHref("python", "print(1)");
-    expect(href).toContain("/studio/new?");
-    expect(href).toContain("mode=coding");
-    expect(href).toContain("lang=python");
-    expect(href).toContain("code=");
-  });
-
-  it("builds a robotics studio href for arduino", () => {
-    const href = studioHref("arduino", "void setup(){}");
-    expect(href).toContain("mode=robotics");
-    expect(href).toContain("board=arduino-uno");
-  });
-});
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `pnpm --filter robocode-frontend exec vitest run src/lib/studio/open-in-studio.test.ts`
-Expected: FAIL (module not found). If the repo has no vitest, check `robocode-frontend/package.json` for the test runner and adapt the command; if none exists, skip the `vitest` runner and instead verify via `tsc --noEmit` after Step 3 and a manual round-trip in Step 4.
-
-- [ ] **Step 3: Write the implementation**
+- [ ] **Step 1: Write the implementation**
 
 ```ts
 // URL helpers for opening a code snippet directly in the RoboCode Studio.
@@ -221,15 +165,18 @@ export function studioHref(language: string, code: string): string {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [ ] **Step 2: Typecheck + runtime sanity check**
 
-Run: `pnpm --filter robocode-frontend exec vitest run src/lib/studio/open-in-studio.test.ts`
-Expected: PASS (6 passing). If no vitest, run `pnpm --filter robocode-frontend exec tsc --noEmit` (PASS).
-
-- [ ] **Step 5: Commit**
 ```bash
-git add robocode-frontend/src/lib/studio/open-in-studio.ts robocode-frontend/src/lib/studio/open-in-studio.test.ts
-git commit -m "feat(studio): add open-in-studio URL encode/decode helper"
+cd robocode-frontend && pnpm typecheck
+npx tsx -e "import('./src/lib/studio/open-in-studio.ts').then(m=>{const c='print(\"Héllo 🌍\")';const r=m.decodeStudioCode(m.encodeStudioCode(c));console.assert(r===c,'roundtrip');console.assert(m.decodeStudioCode('!!!')===null,'malformed');console.assert(m.decodeStudioCode(m.encodeStudioCode('x'.repeat(9000)))===null,'oversize');const h=m.studioHref('python','print(1)');console.assert(h.includes('mode=coding')&&h.includes('lang=python')&&h.includes('code='),'coding href');const a=m.studioHref('arduino','void setup(){}');console.assert(a.includes('mode=robotics')&&a.includes('board=arduino-uno'),'robotics href');console.log('open-in-studio sanity OK')})"
+```
+Expected: typecheck PASS; the node check prints `open-in-studio sanity OK` with no assertion failures. (If `tsx` isn't resolvable, run the equivalent check against the compiled output or skip — typecheck + the Task reviewer are the gate.)
+
+- [ ] **Step 3: Commit (frontend repo)**
+```bash
+git -C robocode-frontend add src/lib/studio/open-in-studio.ts
+git -C robocode-frontend commit -m "feat(studio): add open-in-studio URL encode/decode helper"
 ```
 
 ---
@@ -256,17 +203,16 @@ git commit -m "feat(studio): add open-in-studio URL encode/decode helper"
 
 - [ ] **Step 1: Markdown renderer**
 
-Create `markdown.tsx`:
+Create `markdown.tsx` (reuses the existing `.md-body` class — see Global Constraints):
 ```tsx
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-/** Renders trusted lesson markdown as styled HTML. Code fences inside markdown
- *  are shown as plain inline-styled blocks; standalone runnable examples use the
- *  dedicated `code` block type instead. */
+/** Renders trusted lesson markdown as styled HTML using the shared `.md-body`
+ *  typography. Standalone runnable examples use the dedicated `code` block type. */
 export function Markdown({ text }: { text: string }) {
   return (
-    <div className="prose-lesson">
+    <div className="md-body">
       <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
     </div>
   );
@@ -402,7 +348,7 @@ export function Callout({ variant = "tip", text }: { variant?: keyof typeof VARI
   return (
     <div className={`my-5 flex gap-3 rounded-xl border p-4 ${cls}`}>
       <Icon className="mt-0.5 size-5 shrink-0 text-foreground/70" />
-      <div className="prose-lesson text-sm">
+      <div className="md-body text-sm">
         <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
       </div>
     </div>
@@ -693,18 +639,28 @@ In the `CodeFile` model, add after the existing `content` field:
   explanationAt   DateTime?
 ```
 
-- [ ] **Step 2: Create the migration**
+- [ ] **Step 2: Hand-author a migration file (match the existing convention)**
 
-Run (from `robocode-backend`):
-```bash
-pnpm --filter robocode-backend exec prisma migrate dev --name codefile-explanation
+This repo uses `prisma db push` for dev and keeps hand-authored migration files (9 exist under `prisma/migrations/`). Look at the newest one (`prisma/migrations/20260621100000_project_ai_score/migration.sql`) for the format, then create `prisma/migrations/20260621110000_codefile_explanation/migration.sql`:
+```sql
+-- AlterTable
+ALTER TABLE "CodeFile" ADD COLUMN "explanation" TEXT;
+ALTER TABLE "CodeFile" ADD COLUMN "explanationHash" TEXT;
+ALTER TABLE "CodeFile" ADD COLUMN "explanationAt" TIMESTAMP(3);
 ```
-Expected: a new migration under `robocode-backend/prisma/migrations/*` and the Prisma client regenerated. If the DB is unavailable in this environment, run `pnpm --filter robocode-backend exec prisma generate` and create the migration SQL manually under a new timestamped folder mirroring the three `ALTER TABLE "CodeFile" ADD COLUMN` statements.
+(Use a timestamp later than the newest existing migration. Confirm the column SQL types match how Prisma maps `String?`→`TEXT` and `DateTime?`→`TIMESTAMP(3)` in the existing migrations.)
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 3: Regenerate the Prisma client**
+
 ```bash
-git add robocode-backend/prisma/schema.prisma robocode-backend/prisma/migrations
-git commit -m "feat(db): persist code explanation on CodeFile"
+cd robocode-backend && pnpm db:generate
+```
+Expected: client regenerates with the new fields. (If a dev DB is reachable, `pnpm db:push` syncs it; otherwise the migration file + `db:generate` are sufficient for the build.) Then `pnpm typecheck` → PASS.
+
+- [ ] **Step 4: Commit (backend repo)**
+```bash
+git -C robocode-backend add prisma/schema.prisma prisma/migrations/20260621110000_codefile_explanation
+git -C robocode-backend commit -m "feat(db): persist code explanation on CodeFile"
 ```
 
 ---
@@ -721,13 +677,15 @@ git commit -m "feat(db): persist code explanation on CodeFile"
 - Consumes: `PrismaService` (already injected in `AiService`); role helpers from `@/domain/roles` (e.g. `isStaff`).
 - Produces: `explainCode(user, language, code, filename?, projectId?)` returning `ExplainCodeResult & { cached?: boolean }`.
 
-- [ ] **Step 1: Extend the DTO**
+No test framework in this repo — verify with `pnpm typecheck` + `pnpm lint`; the Task reviewer is the correctness gate.
 
-In `dto.ts`, add `projectId` to `explainCodeSchema`:
+- [ ] **Step 1: Extend the DTO (keep the existing enum)**
+
+In `dto.ts`, add ONLY `projectId` to the existing `explainCodeSchema` (do not change `language`/`code`):
 ```ts
 export const explainCodeSchema = z.object({
-  language: z.string().min(1),
-  code: z.string().min(1),
+  language: z.enum(CODE_LANGUAGES),
+  code: z.string().min(1).max(20000),
   filename: z.string().max(120).optional(),
   projectId: z.string().max(40).optional(),
 });
@@ -735,7 +693,7 @@ export const explainCodeSchema = z.object({
 
 - [ ] **Step 2: Pass projectId from the controller**
 
-In `ai.controller.ts`, update the `explainCode` handler:
+In `ai.controller.ts`, update the `explainCode` handler (keep the existing `@RequireActive()` decorator):
 ```ts
   explainCode(@CurrentUser() user: AuthUser, @Body(new ZodPipe(explainCodeSchema)) body: ExplainCodeInput) {
     return this.ai.explainCode(user, body.language, body.code, body.filename, body.projectId);
@@ -744,33 +702,11 @@ In `ai.controller.ts`, update the `explainCode` handler:
 
 - [ ] **Step 3: Add `cached` to the result type**
 
-In `ai.service.ts` (or wherever `ExplainCodeResult` is declared), add `cached?: boolean;`.
+In `dto.ts` where `ExplainCodeResult` is declared, add `cached?: boolean;`.
 
-- [ ] **Step 4: Write the failing test**
+- [ ] **Step 4: Implement caching in `explainCode`**
 
-Add a test that a second identical explain call does not invoke the AI. Sketch (adapt to the repo's Nest testing setup; mock `rawChat` and `prisma.codeFile`):
-```ts
-it("returns the cached explanation without calling the AI on the second request", async () => {
-  // First call: AI returns text, persists explanation + hash.
-  // Second call with identical code: explanationHash matches → cached:true, rawChat NOT called again.
-  expect(second.cached).toBe(true);
-  expect(rawChatSpy).toHaveBeenCalledTimes(1);
-});
-it("re-fetches when the code changed (hash mismatch)", async () => {
-  // stored explanationHash != sha256(newCode) → AI called again, cached:false
-  expect(third.cached).toBe(false);
-  expect(rawChatSpy).toHaveBeenCalledTimes(2);
-});
-```
-
-- [ ] **Step 5: Run test to verify it fails**
-
-Run: `pnpm --filter robocode-backend exec jest ai.service` (or the project's test command).
-Expected: FAIL.
-
-- [ ] **Step 6: Implement caching in `explainCode`**
-
-Add at the top of `ai.service.ts`: `import { createHash } from "node:crypto";` and (if not present) `import { isStaff } from "../../domain/roles";` (verify the correct path — match how other modules import it).
+Add at the top of `ai.service.ts`: `import { createHash } from "node:crypto";` and `import { isStaff } from "../../domain/roles";` (confirm the relative path matches the file's location — `src/modules/ai/ai.service.ts` → `../../domain/roles`).
 
 Add a private read-access helper:
 ```ts
@@ -827,14 +763,17 @@ Replace the body of `explainCode` with:
   }
 ```
 
-- [ ] **Step 7: Run tests to verify they pass**
+- [ ] **Step 5: Verify**
 
-Run: `pnpm --filter robocode-backend exec jest ai.service` → PASS. Then `pnpm --filter robocode-backend exec tsc --noEmit` → PASS.
-
-- [ ] **Step 8: Commit**
 ```bash
-git add robocode-backend/src/modules/ai/dto.ts robocode-backend/src/modules/ai/ai.controller.ts robocode-backend/src/modules/ai/ai.service.ts robocode-backend/src/modules/ai/ai.service.spec.ts
-git commit -m "feat(ai): cache code explanations per file with hash invalidation"
+cd robocode-backend && pnpm typecheck && pnpm lint
+```
+Expected: both PASS. Sanity-reason through the cache path: identical code + matching `explanationHash` → returns `cached:true` without calling `rawChat`; changed code → hash mismatch → AI call + re-persist.
+
+- [ ] **Step 6: Commit (backend repo)**
+```bash
+git -C robocode-backend add src/modules/ai/dto.ts src/modules/ai/ai.controller.ts src/modules/ai/ai.service.ts
+git -C robocode-backend commit -m "feat(ai): cache code explanations per file with hash invalidation"
 ```
 
 ---
