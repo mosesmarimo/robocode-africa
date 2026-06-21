@@ -143,6 +143,28 @@ existing tasks/challenges are preserved.
 Locate where the studio chrome renders "RoboCode.Africa" and change it to "RoboCode Studio".
 (Branding elsewhere on the marketing site / app shell is unchanged — this is studio-only.)
 
+### 6. Studio Code Explainer — nicely formatted HTML/CSS
+
+The screenshot the user shared (from production at `robocode.africa/studio/...`) shows the
+Code Explainer "Explanation" panel rendering **raw markdown** — literal backticks and `-`
+bullets as plain text. Investigation shows the **current `refactor/frontend-backend-split`
+branch already fixes this**: `coding-studio.tsx` renders the explanation via
+`<Markdown remarkPlugins={[remarkGfm]}>` inside a styled `md-body` div, and the backend
+explain prompt (`ai.service.ts`) already returns GitHub-flavoured Markdown. The production
+site is the older pre-split monolith and simply hasn't been deployed from this branch yet.
+
+The deliverable here is therefore **verify + polish + consistency**:
+
+- Confirm the Explanation and Validation panels render markdown (not plain text).
+- Polish `md-body` so the explainer's "inline-code line + explanation" walkthrough pattern
+  reads cleanly: tighter list rhythm, clear inline-code chips, comfortable spacing — the same
+  level of "nicely formatted HTML/CSS" as the new `.prose-lesson` lessons. The two styles stay
+  separate classes (`md-body` for studio AI panels, `.prose-lesson` for lessons) but share the
+  same visual quality bar.
+- No backend prompt change is required (it already specifies GFM); only adjust if the rendered
+  walkthrough items need the explanation on its own line — handled by a minor `md-body li`
+  rule, not a prompt change.
+
 ## Data flow
 
 1. Seed writes enriched `Lesson.body` block arrays into Postgres.
