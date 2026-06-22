@@ -5,8 +5,10 @@
 #                 guard, and the esp_random literal-vs-constant lines.
 set -euo pipefail
 
-FRONT=/Users/marimo/Dev/robocode/robocode-frontend/src/lib/sim
-BACK=/Users/marimo/Dev/robocode/robocode-backend/src/sim
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+FRONT="$REPO_ROOT/robocode-frontend/src/lib/sim"
+BACK="$REPO_ROOT/robocode-backend/src/sim"
 
 fail=0
 
