@@ -23,5 +23,8 @@ Shipped 2026-07-04/05 across backend (`d73a983`), web (`c531ee2`), mobile (`8ca0
 - Frontend + mobile: after a pass, a "See how others solved it" panel showing the gallery (syntax-highlighted, read-only) + like buttons.
 - Youth-safety: anonymized by default; only unlocked after the viewer passes; moderation/report reuse.
 
+## Iteration 4 — Learning tracks + checkpoint certificates ✅ DONE
+Backlog #4 (curated finishable tracks, P0) + #9 (checkpoint certificates, P1) — LeetCode study plans / Codecademy paths / freeCodeCamp checkpoint certs. Reality-adapted: the challenge bank has only 15 tasks, so tracks span existing courses AND challenges (polymorphic `LearningTrackItem`); progress derived from existing pass records (no progress table, instant retroactive credit); certificate + 150 XP auto-issued on completion (idempotent, hooks + lazy backfill); public PII-free verify page `/cert/[code]`. 6 curated tracks seeded (python/javascript paths, web-foundations, robotics starter/explorer, ai-explorer). Shipped 2026-07-05 across backend (`bc43a0d..3e00fc9` + migration), web (`5d719d8..bf212fd`), mobile (`49910a0`); design `2026-07-05-learning-tracks-certificates-design.md`, plan `2026-07-05-learning-tracks-certificates.md`; per-task reviews + final whole-branch review READY TO DEPLOY; e2e verified live (real cert issuance + public verify). Follow-ups logged in the review: unpublish-missing-tracks in sync, $transaction wrap, cert-vs-new-item card behavior.
+
 ## Later (backlog, not yet scheduled)
 Manipulate-before-explain Studio-sim widgets (Brilliant — high effort); spaced-repetition practice deck (Codecademy Go / boot.dev Training Grounds); checkpoint certificates (freeCodeCamp); community boss-battle event (boot.dev). See the backlog doc for the full 24.
