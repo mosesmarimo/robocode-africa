@@ -54,3 +54,4 @@ robocode-mobile/ios/.symlinks/
 robocode-mobile/android/.gradle/
 robocode-mobile/android/local.properties
 robocode-mobile/**/GeneratedPluginRegistrant.*
+.superpowers/
