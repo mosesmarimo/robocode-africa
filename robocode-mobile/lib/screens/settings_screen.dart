@@ -18,6 +18,20 @@ const _localeOptions = <String, String>{
   'pt': 'Portuguese',
 };
 
+const _aiProviders = <String>['glm', 'deepseek', 'openai', 'custom'];
+
+// Preset endpoints/models per provider (mirrors the web AI-model form).
+const _aiPresetBaseUrls = <String, String>{
+  'glm': 'https://api.z.ai/api/paas/v4',
+  'deepseek': 'https://api.deepseek.com',
+  'openai': 'https://api.openai.com/v1',
+};
+const _aiPresetModels = <String, String>{
+  'glm': 'glm-5.2',
+  'deepseek': 'deepseek-v4-pro',
+  'openai': 'gpt-4o-mini',
+};
+
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
   @override
@@ -39,6 +53,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _saving = false;
   Map<String, String>? _fieldErrors;
 
+  // AI model config.
+  final _aiModelController = TextEditingController();
+  final _aiBaseUrlController = TextEditingController();
+  final _aiKeyController = TextEditingController();
+  bool _aiAvailable = false;
+  bool _aiCanEdit = true;
+  String _aiProvider = 'glm';
+  bool _aiHasKey = false;
+  String _aiDefaultModel = '';
+  String _aiEffProvider = '';
+  String _aiEffModel = '';
+  String? _aiManagedBy;
+  bool _aiSaving = false;
+
   @override
   void initState() {
     super.initState();
@@ -48,11 +76,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void dispose() {
     _displayNameController.dispose();
+    _aiModelController.dispose();
+    _aiBaseUrlController.dispose();
+    _aiKeyController.dispose();
     super.dispose();
   }
 
-  Future<Map<String, dynamic>> _load() =>
-      ApiClient.instance.get<Map<String, dynamic>>('/account/settings');
+  Future<Map<String, dynamic>> _load() async {
+    final results = await Future.wait([
+      ApiClient.instance.get<Map<String, dynamic>>('/account/settings'),
+      ApiClient.instance
+          .get<Map<String, dynamic>>('/ai/config')
+          .catchError((_) => <String, dynamic>{}),
+    ]);
+    return {...results[0], 'aiConfig': results[1]};
+  }
 
   void _reload() {
     _initialized = false;
@@ -70,7 +108,58 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _email = user['email']?.toString() ?? '';
     _role = user['role']?.toString() ?? '';
     _schoolName = data['schoolName']?.toString();
+
+    final ai = (data['aiConfig'] as Map?)?.cast<String, dynamic>() ?? {};
+    _aiAvailable = ai.isNotEmpty;
+    if (_aiAvailable) {
+      _aiCanEdit = ai['canEdit'] != false;
+      final cfg = (ai['config'] as Map?)?.cast<String, dynamic>() ?? {};
+      final eff = (ai['effective'] as Map?)?.cast<String, dynamic>() ?? {};
+      final prov = cfg['provider']?.toString() ?? '';
+      _aiProvider = _aiProviders.contains(prov) ? prov : (prov.isEmpty ? 'glm' : 'custom');
+      _aiModelController.text = cfg['model']?.toString() ?? '';
+      _aiBaseUrlController.text = cfg['baseUrl']?.toString() ?? '';
+      _aiHasKey = cfg['hasKey'] == true;
+      _aiDefaultModel = ai['defaultModel']?.toString() ?? '';
+      _aiEffProvider = eff['provider']?.toString() ?? '';
+      _aiEffModel = eff['model']?.toString() ?? '';
+      _aiManagedBy = ai['schoolName']?.toString();
+    }
     _initialized = true;
+  }
+
+  Future<void> _saveAi({bool reset = false}) async {
+    if (_aiSaving) return;
+    setState(() => _aiSaving = true);
+    try {
+      final Map<String, dynamic> body = reset
+          ? {'clearKey': true, 'provider': '', 'baseUrl': '', 'model': ''}
+          : {
+              'provider': _aiProvider,
+              'model': _aiModelController.text.trim(),
+              'baseUrl': _aiProvider == 'custom'
+                  ? _aiBaseUrlController.text.trim()
+                  : (_aiPresetBaseUrls[_aiProvider] ?? ''),
+              if (_aiKeyController.text.trim().isNotEmpty) 'apiKey': _aiKeyController.text.trim(),
+            };
+      await ApiClient.instance.put<Map<String, dynamic>>('/ai/config', body: body);
+      if (!mounted) return;
+      _aiKeyController.clear();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(reset ? 'AI model reset to platform default.' : 'AI model saved.')),
+      );
+      _reload();
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not reach the server. Check your connection.')),
+      );
+    } finally {
+      if (mounted) setState(() => _aiSaving = false);
+    }
   }
 
   void _shuffleAvatar() {
@@ -208,6 +297,104 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 label: Text(_saving ? 'Saving...' : 'Save changes'),
               ),
               const SizedBox(height: 28),
+
+              // AI model configuration.
+              if (_aiAvailable) ...[
+                const Text('AI model', style: TextStyle(fontWeight: FontWeight.w600)),
+                const SizedBox(height: 8),
+                if (!_aiCanEdit)
+                  Card(
+                    child: ListTile(
+                      leading: const Icon(Icons.lock_outline),
+                      title: Text('Managed by ${_aiManagedBy ?? 'your school'}'),
+                      subtitle: Text(
+                          'Using ${_aiEffProvider.isEmpty ? '—' : _aiEffProvider} · ${_aiEffModel.isEmpty ? '—' : _aiEffModel}'),
+                    ),
+                  )
+                else ...[
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        value: _aiProvider,
+                        isExpanded: true,
+                        icon: const Icon(Icons.smart_toy_outlined),
+                        items: _aiProviders
+                            .map((p) => DropdownMenuItem(value: p, child: Text(p)))
+                            .toList(),
+                        onChanged: _aiSaving
+                            ? null
+                            : (v) {
+                                if (v == null) return;
+                                setState(() {
+                                  _aiProvider = v;
+                                  if (v != 'custom' && _aiModelController.text.trim().isEmpty) {
+                                    _aiModelController.text = _aiPresetModels[v] ?? '';
+                                  }
+                                });
+                              },
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _aiModelController,
+                    decoration: InputDecoration(
+                      labelText: 'Model',
+                      hintText: _aiDefaultModel.isEmpty ? 'Model name' : _aiDefaultModel,
+                      prefixIcon: const Icon(Icons.memory_outlined),
+                    ),
+                  ),
+                  if (_aiProvider == 'custom') ...[
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _aiBaseUrlController,
+                      keyboardType: TextInputType.url,
+                      decoration: const InputDecoration(
+                        labelText: 'Base URL',
+                        hintText: 'https://api.example.com/v1',
+                        prefixIcon: Icon(Icons.link),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _aiKeyController,
+                    obscureText: true,
+                    decoration: InputDecoration(
+                      labelText: 'API key',
+                      hintText: _aiHasKey ? 'saved — leave blank to keep' : 'Paste your API key',
+                      prefixIcon: const Icon(Icons.key_outlined),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed: _aiSaving ? null : () => _saveAi(),
+                          icon: _aiSaving
+                              ? const SizedBox(
+                                  width: 18, height: 18,
+                                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                              : const Icon(Icons.save_outlined),
+                          label: const Text('Save AI model'),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      OutlinedButton(
+                        onPressed: _aiSaving ? null : () => _saveAi(reset: true),
+                        child: const Text('Use default'),
+                      ),
+                    ],
+                  ),
+                ],
+                const SizedBox(height: 28),
+              ],
 
               // Read-only account info.
               const Text('Account', style: TextStyle(fontWeight: FontWeight.w600)),

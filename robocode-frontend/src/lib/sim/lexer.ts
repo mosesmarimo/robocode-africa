@@ -19,7 +19,7 @@ export function preprocess(input: string): Preprocessed {
   const lines = src.split("\n").map((line) => {
     // strip line comments (naive; fine for educational code)
     const ci = line.indexOf("//");
-    let l = ci >= 0 ? line.slice(0, ci) : line;
+    const l = ci >= 0 ? line.slice(0, ci) : line;
     const t = l.trim();
     if (t.startsWith("#")) {
       const m = t.match(/^#define\s+([A-Za-z_]\w*)\s+(.+)$/);

@@ -1,0 +1,19 @@
+# systemd USER unit for the RoboCode NestJS API (port 4100).
+# Lives at ~/.config/systemd/user/robocode-backend.service for the robocode user
+# (which has linger enabled). Manage with: systemctl --user {start,restart,status} robocode-backend
+[Unit]
+Description=robocode backend (NestJS) on :4100
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/srv/robocode/backend
+EnvironmentFile=/srv/robocode/backend/.env
+Environment=NODE_ENV=production
+ExecStart=/bin/bash -lc 'export NVM_DIR=/srv/robocode/.nvm; . "$NVM_DIR/nvm.sh"; exec node dist/main.js'
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

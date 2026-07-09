@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, Plus } from "lucide-react";
+import { ArrowRight, Plus, UserPlus } from "lucide-react";
 import { getPageUser, type CurrentUser } from "@/lib/auth/current-user";
 import { apiGet } from "@/lib/api/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -82,9 +82,14 @@ function StudentDashboard({
             <h1 className="font-display text-3xl font-bold sm:text-4xl">{firstName} 👋</h1>
             <p className="mt-2 max-w-md text-white/85">Ready to build something amazing today? Pick up where you left off or start a fresh circuit.</p>
           </div>
-          <Button variant="secondary" size="lg" asChild className="bg-white text-primary hover:bg-white/90">
-            <Link href="/app/projects"><Plus className="size-4" /> New Project</Link>
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" size="lg" asChild className="bg-white text-primary hover:bg-white/90">
+              <Link href="/app/projects"><Plus className="size-4" /> New Project</Link>
+            </Button>
+            <Button variant="outline" size="lg" asChild className="border-white/40 bg-white/10 text-white hover:bg-white/20">
+              <Link href="/app/invite"><UserPlus className="size-4" /> Invite friends</Link>
+            </Button>
+          </div>
         </div>
         <div className="relative z-10 mt-6 max-w-md">
           <div className="mb-1 flex items-center justify-between text-sm">
@@ -144,6 +149,12 @@ function StudentDashboard({
                 <span className="text-sm font-semibold text-primary">{l.roboPoints}</span>
               </div>
             ))}
+            <Link
+              href="/app/leaderboards"
+              className="block rounded-lg border border-dashed border-border px-3 py-2 text-center text-xs font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
+            >
+              Coding &amp; Robotics XP boards, by language →
+            </Link>
           </CardContent>
         </Card>
       </div>
@@ -203,9 +214,10 @@ function StaffDashboard({ data }: { data: StaffDashboardData }) {
             { label: "Review approvals", href: platform ? "/app/admin/approvals" : "/app/school/approvals", icon: "user-check" },
             { label: "Manage members", href: platform ? "/app/admin/users" : "/app/school/members", icon: "users" },
             { label: "Competitions", href: "/app/competitions", icon: "trophy" },
-            { label: "Content library", href: "/app/learn", icon: "library" },
+            { label: "Academy", href: "/app/learn", icon: "library" },
             ...(platform ? [{ label: "Schools", href: "/app/admin/tenants", icon: "building-2" }] : [{ label: "Branding", href: "/app/school/branding", icon: "palette" }]),
             { label: "Open Studio", href: "/app/projects", icon: "cpu" },
+            { label: "Invite friends", href: "/app/invite", icon: "user-plus" },
           ].map((a) => (
             <Button key={a.href} variant="outline" className="h-auto justify-start gap-3 p-4" asChild>
               <Link href={a.href}>

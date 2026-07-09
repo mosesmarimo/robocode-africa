@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 
 import '../api/api_client.dart';
 import '../theme.dart';
@@ -258,12 +257,5 @@ String? _formatWhen(String? iso) {
   if (iso == null || iso.isEmpty) return null;
   final dt = DateTime.tryParse(iso);
   if (dt == null) return null;
-  final local = dt.toLocal();
-  final now = DateTime.now();
-  final diff = now.difference(local);
-  if (diff.inSeconds < 60) return 'Just now';
-  if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
-  if (diff.inHours < 24) return '${diff.inHours}h ago';
-  if (diff.inDays < 7) return '${diff.inDays}d ago';
-  return DateFormat.yMMMd().add_jm().format(local);
+  return relativeTime(dt, withTime: true);
 }

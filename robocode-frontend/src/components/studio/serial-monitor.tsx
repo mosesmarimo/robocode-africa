@@ -19,7 +19,7 @@ export function SerialMonitor() {
         <span className="flex items-center gap-1.5 text-xs font-medium text-white/70">
           <TerminalSquare className="size-3.5" /> Serial Monitor
         </span>
-        <button onClick={clear} className="grid size-6 place-items-center rounded text-white/50 hover:bg-white/10 hover:text-white">
+        <button onClick={clear} aria-label="Clear serial output" title="Clear" className="grid size-6 place-items-center rounded text-white/50 hover:bg-white/10 hover:text-white">
           <Trash2 className="size-3.5" />
         </button>
       </div>

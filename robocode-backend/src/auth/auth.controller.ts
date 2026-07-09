@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Post, Req } from "@nestjs/common";
+import { Throttle } from "@nestjs/throttler";
 import type { Request } from "express";
 import { AuthService, publicUser } from "./auth.service";
 import { TenantService } from "../common/tenant.service";
@@ -15,6 +16,7 @@ export class AuthController {
   ) {}
 
   @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 8 } }) // brute-force guard
   @Post("login")
   async login(@Body(new ZodPipe(loginSchema)) body: LoginInput, @Req() req: Request) {
     const tenant = await this.tenants.fromRequest(req);
@@ -22,6 +24,7 @@ export class AuthController {
   }
 
   @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
   @Post("student-signup")
   async studentSignup(@Body(new ZodPipe(studentSignupSchema)) body: StudentSignupInput, @Req() req: Request) {
     const tenant = await this.tenants.fromRequest(req);
@@ -29,6 +32,7 @@ export class AuthController {
   }
 
   @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
   @Post("school-signup")
   async schoolSignup(@Body(new ZodPipe(schoolSignupSchema)) body: SchoolSignupInput) {
     return this.auth.schoolSignup(body);

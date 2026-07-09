@@ -181,8 +181,10 @@ export function BrandingForm({ schoolName, initial }: BrandingFormProps) {
               <div className="flex items-center justify-between px-5 py-4">
                 <div className="flex items-center gap-3">
                   {logoUrl ? (
+                    // Arbitrary external URL preview — explicit height/width caps
+                    // it and prevents layout shift as the image loads.
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={logoUrl} alt="School logo" className="h-8 object-contain" />
+                    <img src={logoUrl} alt="School logo" height={32} width={120} className="h-8 w-auto max-w-[160px] object-contain" />
                   ) : (
                     <div
                       className="grid size-8 place-items-center rounded-lg text-sm font-bold"

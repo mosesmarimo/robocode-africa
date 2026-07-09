@@ -26,6 +26,10 @@ async function authHeaders(extra?: Record<string, string>): Promise<Record<strin
   if (token) out["authorization"] = `Bearer ${token}`;
   if (host) out["x-forwarded-host"] = host;
   if (tenant) out["x-tenant"] = tenant;
+  // Forward the real client IP so the backend rate-limiter keys per user, not
+  // per this server (all RSC/server-action calls originate from 127.0.0.1).
+  const ip = h.get("x-forwarded-for") ?? h.get("x-real-ip");
+  if (ip) out["x-forwarded-for"] = ip;
   return out;
 }
 
@@ -71,6 +75,30 @@ export async function apiGetOrNull<T>(path: string): Promise<T | null> {
   }
 }
 
+/**
+ * GET a `@Public()` backend endpoint WITHOUT forwarding the viewer's own
+ * session — no `Authorization: Bearer`, no `x-tenant`/`x-forwarded-host`.
+ * Use this (never `apiGet`/`apiGetOrNull`) for routes meant to be fully
+ * anonymous (e.g. the published-project `_site` render): those helpers
+ * forward the current visitor's cookie-derived JWT even to `@Public()`
+ * routes, and JwtAuthGuard resolves+attaches that user regardless of
+ * `@Public()` — so a logged-in (or stale-session) viewer's own account state
+ * (e.g. a suspended tenant) can leak into, or even break, a request that has
+ * nothing to do with them. Mirrors apiGetOrNull's null-on-401/404 behavior.
+ */
+export async function apiGetPublic<T>(path: string): Promise<T | null> {
+  const res = await fetch(`${BASE}${path}`, {
+    headers: { "content-type": "application/json" },
+    cache: "no-store",
+  });
+  try {
+    return await parse<T>(res);
+  } catch (e) {
+    if (e instanceof ApiError && (e.status === 401 || e.status === 404)) return null;
+    throw e;
+  }
+}
+
 async function send<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method,
@@ -94,11 +122,19 @@ export interface LoginResult<U = unknown> {
   redirect?: string;
 }
 
+/** The real client IP from the incoming request, to forward to the backend rate-limiter. */
+async function clientIp(): Promise<string> {
+  const h = await headers();
+  return h.get("x-forwarded-for") ?? h.get("x-real-ip") ?? "";
+}
+
 /** POST /auth/login without a session (used by the login action before a cookie exists). */
 export async function apiLogin<U = unknown>(body: unknown, host: string, tenant?: string): Promise<LoginResult<U>> {
   const headersOut: Record<string, string> = { "content-type": "application/json" };
   if (host) headersOut["x-forwarded-host"] = host;
   if (tenant) headersOut["x-tenant"] = tenant;
+  const ip = await clientIp();
+  if (ip) headersOut["x-forwarded-for"] = ip;
   const res = await fetch(`${BASE}/auth/login`, {
     method: "POST",
     headers: headersOut,
@@ -113,6 +149,8 @@ export async function apiPublic<T>(path: string, body: unknown, host: string, te
   const headersOut: Record<string, string> = { "content-type": "application/json" };
   if (host) headersOut["x-forwarded-host"] = host;
   if (tenant) headersOut["x-tenant"] = tenant;
+  const ip = await clientIp();
+  if (ip) headersOut["x-forwarded-for"] = ip;
   const res = await fetch(`${BASE}${path}`, {
     method: "POST",
     headers: headersOut,

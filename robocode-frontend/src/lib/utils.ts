@@ -25,6 +25,21 @@ export function formatRelative(date: Date | string | number) {
   return d.toLocaleDateString();
 }
 
+/**
+ * Format a day-level date (no time component) in a server-stable way.
+ *
+ * Server components run in the Node server's timezone, so plain
+ * `toLocaleDateString()` can shift a UTC date stored at a day boundary onto the
+ * wrong calendar day for viewers in other zones. Pinning to UTC keeps due/end
+ * dates consistent everywhere.
+ */
+export function formatDay(
+  date: Date | string | number,
+  opts: Intl.DateTimeFormatOptions = { day: "numeric", month: "short", year: "numeric" },
+) {
+  return new Date(date).toLocaleDateString(undefined, { ...opts, timeZone: "UTC" });
+}
+
 export function slugify(s: string) {
   return s
     .toLowerCase()

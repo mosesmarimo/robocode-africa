@@ -1,13 +1,13 @@
-// RoboCode.Africa data model. SQLite for dev (Postgres-portable).
-// Enum-like fields are stored as String (SQLite has no enums); allowed values noted in comments
-// and enforced in app code via zod. Flexible blobs use Json (stored as TEXT on SQLite).
+// RoboCode.Africa data model (PostgreSQL).
+// Enum-like fields are stored as String; allowed values noted in comments and
+// enforced in app code via zod. Flexible blobs use Json (native jsonb on Postgres).
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -15,15 +15,16 @@ datasource db {
 // Tenancy & branding
 // ----------------------------------------------------------------------------
 model Tenant {
-  id           String   @id @default(cuid())
-  slug         String   @unique // subdomain, e.g. "springfield" -> springfield.robocode.africa
-  name         String
-  isPlatform   Boolean  @default(false) // the robocode.africa main tenant
-  status       String   @default("active") // active | suspended | pending
-  branding     Json? // { logoUrl, primary, secondary, accent, tagline, ... }
-  policies     Json? // { autoApprove, allowedFeatures[], ageGroups[], ... }
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id         String   @id @default(cuid())
+  slug       String   @unique // subdomain, e.g. "springfield" -> springfield.robocode.africa
+  name       String
+  isPlatform Boolean  @default(false) // the robocode.africa main tenant
+  status     String   @default("active") // active | suspended | pending
+  branding   Json? // { logoUrl, primary, secondary, accent, tagline, ... }
+  policies   Json? // { autoApprove, allowedFeatures[], ageGroups[], ... }
+  aiConfig   Json? // school AI config { provider, baseUrl, model, apiKey } — applies to all members
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   users            User[]
   domains          Domain[]
@@ -36,6 +37,9 @@ model Tenant {
   announcements    Announcement[]
   moderationCases  ModerationCase[]
   auditLogs        AuditLog[]
+  groups           Group[]
+  posts            Post[]
+  postComments     PostComment[]
   subscription     Subscription?
 }
 
@@ -52,101 +56,125 @@ model Domain {
 }
 
 model Plan {
-  id        String   @id @default(cuid())
-  name      String   @unique
-  seats     Int      @default(50)
-  priceCents Int     @default(0)
-  features  Json?
+  id            String         @id @default(cuid())
+  name          String         @unique
+  seats         Int            @default(50)
+  priceCents    Int            @default(0)
+  features      Json?
   subscriptions Subscription[]
 }
 
 model Subscription {
-  id        String   @id @default(cuid())
-  tenantId  String   @unique
-  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id        String    @id @default(cuid())
+  tenantId  String    @unique
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   planId    String
-  plan      Plan     @relation(fields: [planId], references: [id])
-  status    String   @default("active")
-  seatsUsed Int      @default(0)
+  plan      Plan      @relation(fields: [planId], references: [id])
+  status    String    @default("active")
+  seatsUsed Int       @default(0)
   renewsAt  DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 }
 
 // ----------------------------------------------------------------------------
 // Identity, roles, approval, consent
 // ----------------------------------------------------------------------------
 model User {
-  id           String   @id @default(cuid())
-  tenantId     String
-  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  email        String
-  username     String?
-  passwordHash String
-  displayName  String
-  role         String   @default("student") // super_admin | moderator | school_admin | teacher | student | parent
-  status       String   @default("pending") // pending | active | suspended | rejected
-  isMinor      Boolean  @default(true)
-  birthYear    Int?
-  guardianEmail String?
-  avatarSeed   String   @default("robo")
-  locale       String   @default("en")
-  prefs        Json?
-  roboPoints   Int      @default(0)
-  level        Int      @default(1)
-  lastLoginAt  DateTime?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id                    String    @id @default(cuid())
+  tenantId              String
+  tenant                Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  email                 String
+  username              String?
+  passwordHash          String
+  displayName           String
+  role                  String    @default("student") // super_admin | moderator | school_admin | teacher | student | parent
+  status                String    @default("pending") // pending | active | suspended | rejected
+  isMinor               Boolean   @default(true)
+  birthYear             Int?
+  guardianEmail         String?
+  avatarSeed            String    @default("robo")
+  locale                String    @default("en")
+  prefs                 Json?
+  aiConfig              Json? // personal AI config { provider, baseUrl, model, apiKey } — only for users not in a school
+  roboPoints            Int       @default(0)
+  level                 Int       @default(1)
+  bio                   String? // social profile "about" text (max length enforced in app)
+  tagline               String? // short one-line social headline
+  lastLoginAt           DateTime?
+  referralCode          String?   @unique // this user's own shareable referral code
+  // --- Credential lifecycle ---
+  tokenVersion          Int       @default(0) // bumped on any password change to revoke existing JWTs
+  mustChangePassword    Boolean   @default(false) // true after an admin/school password reset
+  tempPasswordExpiresAt DateTime? // when the reset-issued temp password stops working
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
-  consent           ConsentRecord?
-  approvalRequest   ApprovalRequest?  @relation("ApprovalSubject")
-  decidedApprovals  ApprovalRequest[] @relation("ApprovalDecider")
-  projects          Project[]
-  codeFiles         CodeFile[]
-  submissions       Submission[]
-  teamMemberships   TeamMember[]
-  taughtClasses     Class[]           @relation("ClassTeacher")
-  classMemberships  ClassMember[]
-  enrollments       Enrollment[]
-  lessonProgress    LessonProgress[]
-  badges            UserBadge[]
-  pointsLedger      RoboPointLedger[]
-  notifications     Notification[]
-  announcements     Announcement[]
-  chatMessages      ChatMessage[]
-  reportedCases     ModerationCase[]  @relation("CaseReporter")
-  resolvedCases     ModerationCase[]  @relation("CaseResolver")
-  auditLogs         AuditLog[]
-  ownedTeams        Team[]            @relation("TeamCaptain")
+  consent                ConsentRecord?
+  approvalRequest        ApprovalRequest?  @relation("ApprovalSubject")
+  decidedApprovals       ApprovalRequest[] @relation("ApprovalDecider")
+  projects               Project[]
+  codeFiles              CodeFile[]
+  submissions            Submission[]
+  solutionLikes          SolutionLike[]
+  teamMemberships        TeamMember[]
+  taughtClasses          Class[]           @relation("ClassTeacher")
+  classMemberships       ClassMember[]
+  enrollments            Enrollment[]
+  lessonProgress         LessonProgress[]
+  badges                 UserBadge[]
+  pointsLedger           RoboPointLedger[]
+  notifications          Notification[]
+  announcements          Announcement[]
+  chatMessages           ChatMessage[]
+  reportedCases          ModerationCase[]  @relation("CaseReporter")
+  resolvedCases          ModerationCase[]  @relation("CaseResolver")
+  auditLogs              AuditLog[]
+  ownedTeams             Team[]            @relation("TeamCaptain")
+  // --- Social graph ---
+  sentFriendRequests     Friendship[]      @relation("FriendRequester")
+  receivedFriendRequests Friendship[]      @relation("FriendAddressee")
+  follows                Follow[]
+  ownedGroups            Group[]           @relation("GroupOwner")
+  groupMemberships       GroupMember[]
+  posts                  Post[]
+  postComments           PostComment[]
+  postLikes              PostLike[]
+  // --- Referrals ---
+  referralsMade          Referral[]        @relation("Referrer")
+  referredBy             Referral?         @relation("Referee")
+  certificates           Certificate[]
 
   @@unique([tenantId, email])
   @@index([tenantId, role])
   @@index([tenantId, status])
+  @@index([role, status, roboPoints])
+  @@index([tenantId, role, status, roboPoints])
 }
 
 model ConsentRecord {
-  id          String   @id @default(cuid())
-  userId      String   @unique
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id            String    @id @default(cuid())
+  userId        String    @unique
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   guardianEmail String
-  status      String   @default("pending") // pending | granted | denied
-  token       String   @unique
-  grantedAt   DateTime?
-  createdAt   DateTime @default(now())
+  status        String    @default("pending") // pending | granted | denied
+  token         String    @unique
+  grantedAt     DateTime?
+  createdAt     DateTime  @default(now())
 }
 
 model ApprovalRequest {
-  id          String   @id @default(cuid())
-  userId      String   @unique
-  user        User     @relation("ApprovalSubject", fields: [userId], references: [id], onDelete: Cascade)
+  id          String    @id @default(cuid())
+  userId      String    @unique
+  user        User      @relation("ApprovalSubject", fields: [userId], references: [id], onDelete: Cascade)
   tenantId    String
-  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  type        String   @default("student_school") // student_direct | student_school | teacher
-  status      String   @default("pending") // pending | approved | rejected
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  type        String    @default("student_school") // student_direct | student_school | teacher
+  status      String    @default("pending") // pending | approved | rejected
   decidedById String?
-  decidedBy   User?    @relation("ApprovalDecider", fields: [decidedById], references: [id])
+  decidedBy   User?     @relation("ApprovalDecider", fields: [decidedById], references: [id])
   decidedAt   DateTime?
   reason      String?
-  createdAt   DateTime @default(now())
+  createdAt   DateTime  @default(now())
 
   @@index([tenantId, status])
 }
@@ -155,42 +183,58 @@ model ApprovalRequest {
 // Projects, simulator, boards
 // ----------------------------------------------------------------------------
 model Project {
-  id          String   @id @default(cuid())
-  ownerId     String
-  owner       User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  tenantId    String
-  teamId      String?
-  team        Team?    @relation(fields: [teamId], references: [id])
-  title       String
-  description String?
-  boardType   String   @default("arduino-uno") // arduino-uno | esp32 | raspberry-pi-pico | <custom>
-  diagram     Json     // parts + connections (diagram.json style)
-  thumbnail   String?
-  visibility  String   @default("private") // private | tenant | public
-  isTemplate  Boolean  @default(false)
-  forkedFromId String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id            String    @id @default(cuid())
+  ownerId       String
+  owner         User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  tenantId      String
+  teamId        String?
+  team          Team?     @relation(fields: [teamId], references: [id])
+  title         String
+  description   String?
+  kind          String    @default("robotics") // robotics (electronics studio) | coding (code playground)
+  boardType     String    @default("arduino-uno") // arduino-uno | esp32 | raspberry-pi-pico | <custom>
+  diagram       Json // parts + connections (diagram.json style)
+  thumbnail     String?
+  visibility    String    @default("private") // private | tenant | public
+  shareId       String?   @unique // public read-only share link slug (null = not shared)
+  aiScore       Int? // 0–100 overall AI rank (usefulness/innovation/originality/complexity)
+  aiScoreData   Json? // { usefulness, innovation, originality, complexity, overall, summary }
+  scoredAt      DateTime?
+  isTemplate    Boolean   @default(false)
+  forkedFromId  String?
+  remixedFromId String? // project this was remixed ("Open in Studio") from, if any
+  remixedFrom   Project?  @relation("Remix", fields: [remixedFromId], references: [id])
+  // --- Publish to subdomain (public read-only page at <subdomain>.<publishDomain>) ---
+  subdomain     String? // chosen name, e.g. "myrobot" -> myrobot.robocode.studio
+  publishDomain String? // "robocode.studio" | "robocode.africa" (user's choice)
+  publishedAt   DateTime? // null = not published
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   codeFiles      CodeFile[]
   versions       ProjectVersion[]
   simulationRuns SimulationRun[]
   submissions    Submission[]
+  remixes        Project[]        @relation("Remix")
 
+  @@unique([publishDomain, subdomain])
   @@index([ownerId])
   @@index([tenantId, visibility])
 }
 
 model CodeFile {
-  id        String   @id @default(cuid())
-  projectId String
-  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  authorId  String?
-  author    User?    @relation(fields: [authorId], references: [id])
-  filename  String   @default("sketch.ino")
-  language  String   @default("arduino") // arduino | micropython | circuitpython | blocks
-  content   String   @default("")
-  updatedAt DateTime @updatedAt
+  id              String    @id @default(cuid())
+  projectId       String
+  project         Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  authorId        String?
+  author          User?     @relation(fields: [authorId], references: [id])
+  filename        String    @default("sketch.ino")
+  language        String    @default("arduino") // arduino | micropython | circuitpython | blocks
+  content         String    @default("")
+  explanation     String?
+  explanationHash String? // sha256 hex of the content this explanation was generated from
+  explanationAt   DateTime?
+  updatedAt       DateTime  @updatedAt
 }
 
 model ProjectVersion {
@@ -203,23 +247,23 @@ model ProjectVersion {
 }
 
 model SimulationRun {
-  id        String   @id @default(cuid())
-  projectId String
-  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  status    String   @default("ok") // ok | error
-  durationMs Int     @default(0)
-  log       String?
-  createdAt DateTime @default(now())
+  id         String   @id @default(cuid())
+  projectId  String
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  status     String   @default("ok") // ok | error
+  durationMs Int      @default(0)
+  log        String?
+  createdAt  DateTime @default(now())
 }
 
 model BoardDefinition {
   id          String   @id @default(cuid())
-  tenantId    String?  // null = global/built-in
+  tenantId    String? // null = global/built-in
   tenant      Tenant?  @relation(fields: [tenantId], references: [id])
-  boardId     String   // slug
+  boardId     String // slug
   name        String
-  mcuTarget   String   // avr8js | rp2040js | esp32
-  manifest    Json     // wokwi-boards style board.json
+  mcuTarget   String // avr8js | rp2040js | esp32
+  manifest    Json // wokwi-boards style board.json
   svgAsset    String?
   scope       String   @default("global") // global | tenant
   status      String   @default("approved") // pending | approved | rejected
@@ -234,11 +278,18 @@ model BoardDefinition {
 // ----------------------------------------------------------------------------
 model Course {
   id          String   @id @default(cuid())
-  tenantId    String?  // null = global catalogue
+  tenantId    String? // null = global catalogue
   tenant      Tenant?  @relation(fields: [tenantId], references: [id])
   title       String
   slug        String
   track       String   @default("coding") // robotics | coding | ai
+  // Gamification tag (additive, nullable — most courses are multi-language
+  // or topic-survey content and are left untagged). Set only when a course
+  // is unambiguously tied to one of the frozen 12 languages (the
+  // `lang-<language>` tutorial courses) so its lesson-complete XP lands on
+  // that language's leaderboard, not just its track's. One of the frozen 12
+  // (see domain/constants.ts ALL_LANGUAGES) or null.
+  language    String?
   level       String   @default("primary") // primary | high
   description String?
   coverImage  String?
@@ -250,65 +301,68 @@ model Course {
   tasks       Task[]
   enrollments Enrollment[]
   assignments Assignment[]
+  trackItems  LearningTrackItem[]
 
   @@unique([slug])
 }
 
 model Lesson {
-  id         String   @id @default(cuid())
-  courseId   String
-  course     Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  title      String
-  slug       String
-  order      Int      @default(0)
-  contentType String  @default("markdown") // markdown | video | interactive
-  body       Json     // rich content blocks
-  estMinutes Int      @default(10)
-  progress   LessonProgress[]
+  id          String           @id @default(cuid())
+  courseId    String
+  course      Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  title       String
+  slug        String
+  order       Int              @default(0)
+  contentType String           @default("markdown") // markdown | video | interactive
+  body        Json // rich content blocks
+  estMinutes  Int              @default(10)
+  progress    LessonProgress[]
 }
 
 model Task {
-  id            String   @id @default(cuid())
-  courseId      String?
-  course        Course?  @relation(fields: [courseId], references: [id])
-  title         String
-  slug          String   @unique
-  description   String
-  track         String   @default("coding")
-  difficulty    String   @default("beginner") // beginner | intermediate | advanced
-  points        Int      @default(50)
-  boardType     String   @default("arduino-uno")
+  id             String   @id @default(cuid())
+  courseId       String?
+  course         Course?  @relation(fields: [courseId], references: [id])
+  title          String
+  slug           String   @unique
+  description    String
+  track          String   @default("coding")
+  difficulty     String   @default("beginner") // beginner | intermediate | advanced
+  points         Int      @default(50)
+  boardType      String   @default("arduino-uno")
+  language       String? // null/"arduino" → graded by the Arduino simulator; a coding language (python, javascript, …) → graded by running the code (AI runtime) and checking stdout
   starterDiagram Json?
-  starterCode   String?
-  checks        Json     // auto-grader assertions
-  rubric        Json?
-  createdAt     DateTime @default(now())
+  starterCode    String?
+  checks         Json // auto-grader assertions
+  rubric         Json?
+  createdAt      DateTime @default(now())
 
   submissions Submission[]
   assignments Assignment[]
   rounds      Round[]
+  trackItems  LearningTrackItem[]
 }
 
 model Enrollment {
-  id         String   @id @default(cuid())
-  userId     String
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  courseId   String
-  course     Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  progress   Json?
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  courseId    String
+  course      Course    @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  progress    Json?
   completedAt DateTime?
-  createdAt  DateTime @default(now())
+  createdAt   DateTime  @default(now())
 
   @@unique([userId, courseId])
 }
 
 model LessonProgress {
-  id        String   @id @default(cuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  lessonId  String
-  lesson    Lesson   @relation(fields: [lessonId], references: [id], onDelete: Cascade)
-  status    String   @default("in_progress") // in_progress | completed
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lessonId    String
+  lesson      Lesson    @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  status      String    @default("in_progress") // in_progress | completed
   completedAt DateTime?
 
   @@unique([userId, lessonId])
@@ -331,9 +385,78 @@ model Submission {
   autoResult Json?
   feedback   String?
   gradedById String?
+  isExemplar Boolean  @default(false) // teacher/admin-curated exemplar shown in the post-solve solutions gallery
   createdAt  DateTime @default(now())
 
+  likes SolutionLike[]
+
   @@index([taskId])
+  @@index([userId])
+  @@index([userId, createdAt])
+}
+
+// Post-solve solutions gallery (Codewars/Exercism-style): a like on another
+// student's accepted solution to a challenge. Only ever shown/likeable after
+// the viewer has themselves passed the same task — see competitions.service.ts.
+model SolutionLike {
+  id           String     @id @default(cuid())
+  submissionId String
+  submission   Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt    DateTime   @default(now())
+
+  @@unique([submissionId, userId])
+  @@index([submissionId])
+}
+
+model LearningTrack {
+  id           String              @id @default(cuid())
+  slug         String              @unique
+  title        String
+  description  String
+  track        String              @default("coding") // "coding" | "robotics" | "ai" — same vocabulary as Task/Course
+  language     String? // one of the frozen 12, for per-language paths
+  level        String              @default("beginner")
+  icon         String? // emoji shown on cards
+  order        Int                 @default(0)
+  published    Boolean             @default(true)
+  items        LearningTrackItem[]
+  certificates Certificate[]
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+}
+
+// Exactly ONE of courseId/taskId is set per item (app-validated; seed guarantees it).
+model LearningTrackItem {
+  id       String        @id @default(cuid())
+  trackId  String
+  track    LearningTrack @relation(fields: [trackId], references: [id], onDelete: Cascade)
+  order    Int
+  courseId String?
+  course   Course?       @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  taskId   String?
+  task     Task?         @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@unique([trackId, order])
+  @@unique([trackId, courseId])
+  @@unique([trackId, taskId])
+  @@index([courseId])
+  @@index([taskId])
+}
+
+model Certificate {
+  id       String         @id @default(cuid())
+  code     String         @unique // "RC-XXXXX-XXXXX" crypto-random verify code
+  userId   String
+  user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind     String         @default("track") // future: "course"
+  trackId  String?
+  track    LearningTrack? @relation(fields: [trackId], references: [id], onDelete: SetNull)
+  title    String // snapshot of track title at issuance
+  issuedAt DateTime       @default(now())
+
+  @@unique([userId, kind, trackId])
   @@index([userId])
 }
 
@@ -352,6 +475,8 @@ model Class {
 
   members     ClassMember[]
   assignments Assignment[]
+
+  @@index([tenantId, teacherId])
 }
 
 model ClassMember {
@@ -363,20 +488,21 @@ model ClassMember {
   role    String @default("student")
 
   @@unique([classId, userId])
+  @@index([userId])
 }
 
 model Assignment {
-  id          String   @id @default(cuid())
-  classId     String
-  class       Class    @relation(fields: [classId], references: [id], onDelete: Cascade)
-  taskId      String?
-  task        Task?    @relation(fields: [taskId], references: [id])
-  courseId    String?
-  course      Course?  @relation(fields: [courseId], references: [id])
-  title       String
+  id           String    @id @default(cuid())
+  classId      String
+  class        Class     @relation(fields: [classId], references: [id], onDelete: Cascade)
+  taskId       String?
+  task         Task?     @relation(fields: [taskId], references: [id])
+  courseId     String?
+  course       Course?   @relation(fields: [courseId], references: [id])
+  title        String
   instructions String?
-  dueAt       DateTime?
-  createdAt   DateTime @default(now())
+  dueAt        DateTime?
+  createdAt    DateTime  @default(now())
 }
 
 // ----------------------------------------------------------------------------
@@ -402,34 +528,35 @@ model Team {
   chatMessages ChatMessage[]
 
   @@index([tenantId])
+  @@index([tenantId, roboPoints])
 }
 
 model TeamMember {
-  id      String @id @default(cuid())
-  teamId  String
-  team    Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  userId  String
-  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  role    String @default("member") // captain | member
-  status  String @default("active") // invited | active
+  id     String @id @default(cuid())
+  teamId String
+  team   Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   String @default("member") // captain | member
+  status String @default("active") // invited | active
 
   @@unique([teamId, userId])
 }
 
 model Competition {
-  id        String   @id @default(cuid())
-  tenantId  String?  // null = global / inter-school
-  tenant    Tenant?  @relation(fields: [tenantId], references: [id])
-  title     String
-  slug      String   @unique
-  type      String   @default("coding") // coding | robotics | ai
-  scope     String   @default("intra_school") // intra_school | inter_school | global
-  status    String   @default("upcoming") // upcoming | live | judging | closed
+  id          String    @id @default(cuid())
+  tenantId    String? // null = global / inter-school
+  tenant      Tenant?   @relation(fields: [tenantId], references: [id])
+  title       String
+  slug        String    @unique
+  type        String    @default("coding") // coding | robotics | ai
+  scope       String    @default("intra_school") // intra_school | inter_school | global
+  status      String    @default("upcoming") // upcoming | live | judging | closed
   description String?
-  startsAt  DateTime?
-  endsAt    DateTime?
-  rules     Json?
-  createdAt DateTime @default(now())
+  startsAt    DateTime?
+  endsAt      DateTime?
+  rules       Json?
+  createdAt   DateTime  @default(now())
 
   rounds  Round[]
   entries CompetitionEntry[]
@@ -437,45 +564,49 @@ model Competition {
 }
 
 model Round {
-  id            String   @id @default(cuid())
+  id            String      @id @default(cuid())
   competitionId String
   competition   Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
   name          String
-  order         Int      @default(0)
+  order         Int         @default(0)
   taskId        String?
-  task          Task?    @relation(fields: [taskId], references: [id])
+  task          Task?       @relation(fields: [taskId], references: [id])
   startsAt      DateTime?
   endsAt        DateTime?
   scores        Score[]
 }
 
 model CompetitionEntry {
-  id            String   @id @default(cuid())
+  id            String      @id @default(cuid())
   competitionId String
   competition   Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
   teamId        String?
-  team          Team?    @relation(fields: [teamId], references: [id])
+  team          Team?       @relation(fields: [teamId], references: [id])
   userId        String?
-  status        String   @default("registered")
-  totalScore    Int      @default(0)
-  createdAt     DateTime @default(now())
+  status        String      @default("registered")
+  totalScore    Int         @default(0)
+  createdAt     DateTime    @default(now())
   scores        Score[]
 
+  // Prevent duplicate entries under concurrency. NULLs are distinct in Postgres,
+  // so solo entries (teamId null) and team entries (userId null) don't collide.
+  @@unique([competitionId, userId])
+  @@unique([competitionId, teamId])
   @@index([competitionId])
 }
 
 model Score {
-  id            String   @id @default(cuid())
+  id            String           @id @default(cuid())
   competitionId String?
-  competition   Competition? @relation(fields: [competitionId], references: [id])
+  competition   Competition?     @relation(fields: [competitionId], references: [id])
   roundId       String?
-  round         Round?   @relation(fields: [roundId], references: [id])
+  round         Round?           @relation(fields: [roundId], references: [id])
   entryId       String
   entry         CompetitionEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
-  points        Int      @default(0)
+  points        Int              @default(0)
   breakdown     Json?
   judgedById    String?
-  createdAt     DateTime @default(now())
+  createdAt     DateTime         @default(now())
 }
 
 // ----------------------------------------------------------------------------
@@ -491,17 +622,25 @@ model RoboPointLedger {
   refType   String?
   refId     String?
   idemKey   String?  @unique
+  // Gamification/leaderboard tags (additive, nullable — older rows carry
+  // neither). `language` is one of the frozen 12 (10 coding + arduino,
+  // micropython); `track` ∈ {coding, robotics}, derived from language when
+  // not given explicitly. Indexed for the leaderboard module's groupBy.
+  language  String?
+  track     String?
   createdAt DateTime @default(now())
 
   @@index([userId])
+  @@index([language])
+  @@index([track])
 }
 
 model Badge {
-  id          String   @id @default(cuid())
-  code        String   @unique
+  id          String      @id @default(cuid())
+  code        String      @unique
   name        String
   description String
-  icon        String   @default("award")
+  icon        String      @default("award")
   criteria    Json?
   users       UserBadge[]
 }
@@ -521,15 +660,15 @@ model UserBadge {
 // Communication, moderation, audit
 // ----------------------------------------------------------------------------
 model Notification {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  type      String   @default("info")
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String    @default("info")
   title     String
   body      String?
   data      Json?
   readAt    DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 
   @@index([userId, readAt])
 }
@@ -560,19 +699,21 @@ model ChatMessage {
 }
 
 model ModerationCase {
-  id         String   @id @default(cuid())
-  tenantId   String?
-  tenant     Tenant?  @relation(fields: [tenantId], references: [id])
-  reporterId String?
-  reporter   User?    @relation("CaseReporter", fields: [reporterId], references: [id])
-  targetType String
-  targetId   String
-  reason     String
-  status     String   @default("open") // open | reviewing | resolved | dismissed
-  notes      String?
+  id           String   @id @default(cuid())
+  tenantId     String?
+  tenant       Tenant?  @relation(fields: [tenantId], references: [id])
+  reporterId   String?
+  reporter     User?    @relation("CaseReporter", fields: [reporterId], references: [id])
+  targetType   String
+  targetId     String
+  reason       String
+  status       String   @default("open") // open | reviewing | resolved | dismissed
+  notes        String?
   resolvedById String?
-  resolvedBy User?    @relation("CaseResolver", fields: [resolvedById], references: [id])
-  createdAt  DateTime @default(now())
+  resolvedBy   User?    @relation("CaseResolver", fields: [resolvedById], references: [id])
+  createdAt    DateTime @default(now())
+
+  @@index([status, createdAt])
 }
 
 model AuditLog {
@@ -589,4 +730,166 @@ model AuditLog {
   createdAt  DateTime @default(now())
 
   @@index([tenantId, createdAt])
+}
+
+// ----------------------------------------------------------------------------
+// Social graph (friends, follows, groups, posts)
+//
+// IMPORTANT: the social graph is intentionally PLATFORM-WIDE — it deliberately
+// crosses tenant (school) boundaries, unlike the rest of the app which is
+// strictly tenant-isolated. Friendship and Follow therefore carry NO tenantId
+// (a relationship can span two schools). Group/Post/PostComment keep a tenantId
+// = the *creator/author's* school, used only to route moderation to that
+// school's staff, never to gate who can see the content. There are NO hard
+// deletes of social "messages": posts and comments are archived (soft-hidden,
+// retained for audit), never removed.
+// ----------------------------------------------------------------------------
+
+// Friend connection (request/accept). One row per directed pair; an accepted
+// row represents a mutual friendship read in both directions.
+model Friendship {
+  id          String    @id @default(cuid())
+  requesterId String
+  requester   User      @relation("FriendRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  addresseeId String
+  addressee   User      @relation("FriendAddressee", fields: [addresseeId], references: [id], onDelete: Cascade)
+  status      String    @default("pending") // pending | accepted | blocked
+  acceptedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([requesterId, addresseeId])
+  @@index([addresseeId, status]) // incoming requests for a user
+  @@index([requesterId, status]) // outgoing requests for a user
+}
+
+// Follow a user, project, or group (polymorphic target; integrity enforced in
+// the service, matching the ModerationCase/AuditLog precedent).
+model Follow {
+  id         String   @id @default(cuid())
+  followerId String
+  follower   User     @relation(fields: [followerId], references: [id], onDelete: Cascade)
+  targetType String // user | project | group
+  targetId   String
+  createdAt  DateTime @default(now())
+
+  @@unique([followerId, targetType, targetId])
+  @@index([targetType, targetId]) // list followers of a target
+  @@index([followerId, createdAt]) // a user's follow list (feed seed)
+}
+
+// A student-created group. Discoverable platform-wide; members may be from any
+// school. tenantId = the creator's school (moderation owner).
+model Group {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  ownerId     String
+  owner       User     @relation("GroupOwner", fields: [ownerId], references: [id])
+  name        String
+  description String?
+  avatarSeed  String   @default("group")
+  visibility  String   @default("discoverable") // discoverable | private
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  members GroupMember[]
+  // group wall posts are polymorphic (Post.targetType="group"), not an FK relation
+
+  @@index([tenantId])
+  @@index([ownerId])
+}
+
+// Group membership with request-to-join: status pending until an admin approves.
+model GroupMember {
+  id       String   @id @default(cuid())
+  groupId  String
+  group    Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  userId   String
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role     String   @default("member") // admin | member
+  status   String   @default("pending") // pending | active
+  joinedAt DateTime @default(now())
+
+  @@unique([groupId, userId])
+  @@index([userId, status])
+}
+
+// A wall post: an update on a project | group | user-profile wall.
+// Never hard-deleted — archivedAt soft-hides while retaining for audit.
+model Post {
+  id           String    @id @default(cuid())
+  tenantId     String
+  tenant       Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  authorId     String
+  author       User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  targetType   String // project | group | user
+  targetId     String
+  body         String
+  attachments  Json? // [{ kind: "project", projectId, title, board }, ...]
+  status       String    @default("approved") // approved | blocked (safety filter)
+  archivedAt   DateTime?
+  archivedById String?
+  likeCount    Int       @default(0)
+  commentCount Int       @default(0)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  comments PostComment[]
+  likes    PostLike[]
+
+  // Covers the wall/feed filter (targetType,targetId,archivedAt IS NULL,status) + createdAt sort.
+  @@index([targetType, targetId, archivedAt, status, createdAt])
+  @@index([authorId, createdAt]) // a user's activity
+}
+
+// A comment on a post. Same no-delete / archive policy as Post.
+model PostComment {
+  id           String    @id @default(cuid())
+  tenantId     String
+  tenant       Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  postId       String
+  post         Post      @relation(fields: [postId], references: [id], onDelete: Cascade)
+  authorId     String
+  author       User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  body         String
+  status       String    @default("approved") // approved | blocked
+  archivedAt   DateTime?
+  archivedById String?
+  createdAt    DateTime  @default(now())
+
+  // Covers listComments filter (postId,archivedAt IS NULL,status) + createdAt sort.
+  @@index([postId, archivedAt, status, createdAt])
+}
+
+// A like on a post (toggleable; not a "message", so removable).
+model PostLike {
+  id        String   @id @default(cuid())
+  postId    String
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([postId, userId])
+  @@index([userId])
+}
+
+// ----------------------------------------------------------------------------
+// Referrals (viral growth loop)
+// ----------------------------------------------------------------------------
+// One row per successful signup-via-referral. refereeId is unique: a user can
+// only ever be referred once (by whoever's code they signed up with).
+model Referral {
+  id         String    @id @default(cuid())
+  referrerId String
+  referrer   User      @relation("Referrer", fields: [referrerId], references: [id], onDelete: Cascade)
+  refereeId  String    @unique
+  referee    User      @relation("Referee", fields: [refereeId], references: [id], onDelete: Cascade)
+  code       String
+  status     String    @default("pending") // pending | rewarded
+  rewardedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([referrerId])
 }

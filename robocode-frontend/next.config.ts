@@ -3,6 +3,9 @@ import type { NextConfig } from "next";
 const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:4000";
 
 const nextConfig: NextConfig = {
+  // The Studio "Validate with AI" action uploads a base64 PNG of the diagram;
+  // raise the server-action body limit above the 1MB default.
+  experimental: { serverActions: { bodySizeLimit: "12mb" } },
   // Browser calls to /api/v1/* are proxied to the standalone backend so the
   // rc_session cookie stays same-origin. Server components/actions call the
   // backend directly via the API client (see src/lib/api/client.ts).

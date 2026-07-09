@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Param, Post } from "@nestjs/common";
+import { Throttle } from "@nestjs/throttler";
 import { LearnService } from "./learn.service";
 import { ZodPipe } from "../../common/zod.pipe";
 import { RequireActive, CurrentUser } from "../../auth/decorators";
@@ -8,6 +9,8 @@ import {
   type EnrollInput,
   completeLessonSchema,
   type CompleteLessonInput,
+  completeTaskSchema,
+  type CompleteTaskInput,
 } from "./dto";
 
 @Controller("learn")
@@ -61,5 +64,22 @@ export class LearnController {
     @Body(new ZodPipe(completeLessonSchema)) body: CompleteLessonInput,
   ) {
     return this.learn.completeLesson(user, body);
+  }
+
+  /**
+   * Award XP for a try-it (first success) or exercise completion inside a
+   * Content Library lesson block. Idempotent — repeat calls for the same
+   * (type, refId, user) report `alreadyDone: true` and award 0. Throttled
+   * tighter than the app-wide default (see LearnService.completeTask for the
+   * refId-validation + daily-cap defenses against XP farming).
+   */
+  @RequireActive()
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
+  @Post("complete-task")
+  completeTask(
+    @CurrentUser() user: AuthUser,
+    @Body(new ZodPipe(completeTaskSchema)) body: CompleteTaskInput,
+  ) {
+    return this.learn.completeTask(user, body);
   }
 }

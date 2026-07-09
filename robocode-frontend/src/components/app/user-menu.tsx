@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { LogOut, Settings, User as UserIcon } from "lucide-react";
+import { LogOut, Settings, User as UserIcon, UserPlus } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -18,7 +18,7 @@ import { logout } from "@/lib/auth/actions";
 export function UserMenu({ name, email, role }: { name: string; email: string; role: string }) {
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger className="flex items-center gap-2 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring">
+      <DropdownMenuTrigger aria-label={`Account menu for ${name}`} className="flex items-center gap-2 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring">
         <Avatar className="size-9 border border-border">
           <AvatarFallback>{initials(name)}</AvatarFallback>
         </Avatar>
@@ -37,6 +37,9 @@ export function UserMenu({ name, email, role }: { name: string; email: string; r
         </DropdownMenuItem>
         <DropdownMenuItem asChild>
           <Link href="/app/settings"><Settings /> Settings</Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <Link href="/app/invite"><UserPlus /> Invite friends</Link>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <form action={logout}>

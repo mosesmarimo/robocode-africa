@@ -8,6 +8,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { StatCard } from "@/components/app/stat-card";
 import { SuspendReinstateButton } from "@/components/school/school-buttons";
+import { ResetPasswordButton } from "@/components/admin/reset-password-button";
 import { initials, formatRelative } from "@/lib/utils";
 
 export const metadata = { title: "School Members" };
@@ -207,9 +208,10 @@ function MemberRow({
           </p>
         </div>
       </div>
-      {showActions && (
-        <SuspendReinstateButton userId={id} name={name} status={status} />
-      )}
+      <div className="flex flex-wrap items-center gap-2">
+        <ResetPasswordButton scope="school" userId={id} name={name} />
+        {showActions && <SuspendReinstateButton userId={id} name={name} status={status} />}
+      </div>
     </div>
   );
 }

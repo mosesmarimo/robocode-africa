@@ -19,10 +19,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void initState() {
     super.initState();
-    _future = ApiClient.instance.get<Map<String, dynamic>>('/dashboard');
+    _future = _load();
   }
 
-  void _reload() => setState(() => _future = ApiClient.instance.get<Map<String, dynamic>>('/dashboard'));
+  Future<Map<String, dynamic>> _load() =>
+      ApiClient.instance.get<Map<String, dynamic>>('/dashboard');
+
+  void _reload() => setState(() => _future = _load());
 
   @override
   Widget build(BuildContext context) {
@@ -40,9 +43,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 BrandHeader(
                   title: 'Hi, ${data['firstName'] ?? user?.firstName ?? ''} 👋',
                   subtitle: isStudent ? 'Keep building, keep learning' : (data['tenantName']?.toString() ?? 'RoboCode.Africa'),
-                  trailing: IconButton(
-                    onPressed: () => context.push('/notifications'),
-                    icon: const Icon(Icons.notifications_outlined, color: Colors.white),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (user?.hasVisibleStreak == true) ...[
+                        StreakFlame(
+                          count: user!.streakCount!,
+                          embers: user.streakEmbers,
+                          frozen: user.hasActiveFreeze,
+                        ),
+                        const SizedBox(width: 8),
+                      ],
+                      IconButton(
+                        onPressed: () => context.push('/notifications'),
+                        icon: const Icon(Icons.notifications_outlined, color: Colors.white),
+                      ),
+                    ],
                   ),
                 ),
                 Padding(
@@ -97,17 +113,49 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
         ),
         const SizedBox(height: 20),
+        Card(
+          child: ListTile(
+            leading: const Icon(Icons.route_rounded, color: RoboTheme.primary),
+            title: const Text('Learning Tracks'),
+            subtitle: const Text('Curated paths that end in a certificate'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => context.push('/tracks'),
+          ),
+        ),
+        const SizedBox(height: 20),
+        Card(
+          child: ListTile(
+            leading: const Icon(Icons.leaderboard_rounded, color: RoboTheme.primary),
+            title: const Text('Leaderboards'),
+            subtitle: const Text('See how you rank by language & track'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => context.push('/leaderboards'),
+          ),
+        ),
+        const SizedBox(height: 20),
+        Card(
+          child: ListTile(
+            leading: const Icon(Icons.card_giftcard_rounded, color: RoboTheme.accent),
+            title: const Text('Invite friends'),
+            subtitle: const Text('Earn RoboPoints & badges for every friend who joins'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => context.push('/invite'),
+          ),
+        ),
+        const SizedBox(height: 20),
         _sectionHeader(context, 'Continue learning', '/learn'),
         if (enrollments.isEmpty)
-          _hint('Enroll in a course to start learning.')
+          const HintCard('Enroll in a course to start learning.')
         else
           ...enrollments.take(3).map((e) {
             final course = (e['course'] as Map?) ?? {};
+            // Enrollment.progress is a JSON object { percent: number }.
+            final percent = (e['progress'] as Map?)?['percent'] ?? 0;
             return Card(
               child: ListTile(
                 leading: const Icon(Icons.menu_book_rounded, color: RoboTheme.primary),
                 title: Text(course['title']?.toString() ?? 'Course'),
-                subtitle: Text('${e['progress'] ?? 0}% complete'),
+                subtitle: Text('$percent% complete'),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => course['slug'] != null ? context.push('/learn/${course['slug']}') : null,
               ),
@@ -116,7 +164,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         const SizedBox(height: 20),
         _sectionHeader(context, 'Your projects', '/projects'),
         if (projects.isEmpty)
-          _hint('Open the Studio to build your first circuit.')
+          const HintCard('Open the Studio to build your first circuit.')
         else
           ...projects.take(3).map((p) => Card(
                 child: ListTile(
@@ -178,13 +226,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
             Text(title, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
             TextButton(onPressed: () => context.go(route), child: const Text('See all')),
           ],
-        ),
-      );
-
-  Widget _hint(String text) => Card(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Text(text, style: TextStyle(color: Theme.of(context).hintColor)),
         ),
       );
 }

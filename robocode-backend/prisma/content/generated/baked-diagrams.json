@@ -1,0 +1,991 @@
+{
+  "version": 1,
+  "entries": {
+    "first-led:0f02cd5dcc1c10588ab22f3a42a4674f04f625e4": {
+      "board": "arduino-uno",
+      "language": "arduino",
+      "diagram": {
+        "board": "arduino-uno",
+        "parts": [
+          {
+            "id": "mcu",
+            "type": "__board__:arduino-uno",
+            "x": 40,
+            "y": 220,
+            "rotation": 0
+          },
+          {
+            "id": "resistor-1",
+            "type": "resistor",
+            "x": 520,
+            "y": 60,
+            "rotation": 0
+          },
+          {
+            "id": "led-1",
+            "type": "led",
+            "x": 520,
+            "y": 270,
+            "rotation": 0
+          }
+        ],
+        "wires": [
+          {
+            "id": "wire-1",
+            "from": "mcu:13",
+            "to": "resistor-1:1",
+            "color": "red"
+          },
+          {
+            "id": "wire-2",
+            "from": "resistor-1:2",
+            "to": "led-1:A",
+            "color": "red"
+          },
+          {
+            "id": "wire-3",
+            "from": "led-1:C",
+            "to": "mcu:GND.1",
+            "color": "black"
+          }
+        ]
+      }
+    },
+    "reading-sensor:2b8ce255c855e8f1e2fd31fa0f147499ac133547": {
+      "board": "arduino-uno",
+      "language": "arduino",
+      "diagram": {
+        "board": "arduino-uno",
+        "parts": [
+          {
+            "id": "mcu",
+            "type": "__board__:arduino-uno",
+            "x": 40,
+            "y": 220,
+            "rotation": 0
+          },
+          {
+            "id": "ultrasonic-1",
+            "type": "ultrasonic",
+            "x": 520,
+            "y": 60,
+            "rotation": 0
+          }
+        ],
+        "wires": [
+          {
+            "id": "w1",
+            "from": "mcu:9",
+            "to": "ultrasonic-1:TRIG",
+            "color": "#00ff00"
+          },
+          {
+            "id": "w2",
+            "from": "mcu:10",
+            "to": "ultrasonic-1:ECHO",
+            "color": "#ffff00"
+          },
+          {
+            "id": "w3",
+            "from": "mcu:5V",
+            "to": "ultrasonic-1:VCC",
+            "color": "#ff0000"
+          },
+          {
+            "id": "w4",
+            "from": "mcu:GND.1",
+            "to": "ultrasonic-1:GND",
+            "color": "#000000"
+          }
+        ]
+      }
+    },
+    "smart-thresholds:1748335aaad95417e16bda0ab6cbf7c7c4bf8d34": {
+      "board": "arduino-uno",
+      "language": "arduino",
+      "diagram": {
+        "board": "arduino-uno",
+        "parts": [
+          {
+            "id": "mcu",
+            "type": "__board__:arduino-uno",
+            "x": 40,
+            "y": 220,
+            "rotation": 0
+          },
+          {
+            "id": "photoresistor-1",
+            "type": "photoresistor",
+            "x": 520,
+            "y": 60,
+            "rotation": 0,
+            "props": {}
+          }
+        ],
+        "wires": [
+          {
+            "id": "w1",
+            "from": "photoresistor-1:VCC",
+            "to": "mcu:5V",
+            "color": "red"
+          },
+          {
+            "id": "w2",
+            "from": "photoresistor-1:GND",
+            "to": "mcu:GND.1",
+            "color": "black"
+          },
+          {
+            "id": "w3",
+            "from": "photoresistor-1:AO",
+            "to": "mcu:A0",
+            "color": "yellow"
+          }
+        ]
+      }
+    },
+    "esp32-blink:fe20d1c6de97d32f9682100be35b3be3dc52f8e5": {
+      "board": "esp32",
+      "language": "arduino",
+      "diagram": {
+        "board": "esp32",
+        "parts": [
+          {
+            "id": "mcu",
+            "type": "__board__:esp32",
+            "x": 40,
+            "y": 220,
+            "rotation": 0
+          },
+          {
+            "id": "led-1",
+            "type": "led",
+            "x": 520,
+            "y": 60,
+            "rotation": 0
+          },
+          {
+            "id": "resistor-1",
+            "type": "resistor",
+            "x": 520,
+            "y": 270,
+            "rotation": 0
+          }
+        ],
+        "wires": [
+          {
+            "id": "w1",
+            "from": "mcu:D2",
+            "to": "resistor-1:1",
+            "color": "green"
+          },
+          {
+            "id": "w2",
+            "from": "resistor-1:2",
+            "to": "led-1:A",
+            "color": "green"
+          },
+          {
+            "id": "w3",
+            "from": "led-1:C",
+            "to": "mcu:GND.1",
+            "color": "black"
+          }
+        ]
+      }
+    },
+    "esp32-analog-sensor:c1b7b03829e5b98fc700c9fde25fd9337d77c780": {
+      "board": "esp32",
+      "language": "arduino",
+      "diagram": {
+        "board": "esp32",
+        "parts": [
+          {
+            "id": "mcu",
+            "type": "__board__:esp32",
+            "x": 40,
+            "y": 220,
+            "rotation": 0
+          },
+          {
+            "id": "potentiometer-1",
+            "type": "potentiometer",
+            "x": 520,
+            "y": 60,
+            "rotation": 0,
+            "props": {}
+          }
+        ],
+        "wires": [
+          {
+            "id": "w1",
+            "from": "mcu:3V3",
+            "to": "potentiometer-1:VCC",
+            "color": "red"
+          },
+          {
+            "id": "w2",
+            "from": "mcu:GND.1",
+            "to": "potentiometer-1:GND",
+            "color": "black"
+          },
+          {
+            "id": "w3",
+            "from": "mcu:D34",
+            "to": "potentiometer-1:SIG",
+            "color": "green"
+          }
+        ]
+      }
+    },
+    "sensor-ultrasonic:1ea1543ee089740b2f3789672a8dbfe5e8cd10d9": {
+      "board": "arduino-uno",
+      "language": "arduino",
+      "diagram": {
+        "board": "arduino-uno",
+        "parts": [
+          {
+            "id": "mcu",
+            "type": "__board__:arduino-uno",
+            "x": 40,
+            "y": 220,
+            "rotation": 0
+          },
+          {
+            "id": "ultrasonic-1",
+            "type": "ultrasonic",
+            "x": 520,
+            "y": 60,
+            "rotation": 0,
+            "props": {}
+          }
+        ],
+        "wires": [
+          {
+            "id": "w1",
+            "from": "ultrasonic-1:VCC",
+            "to": "mcu:5V",
+            "color": "red"
+          },
+          {
+            "id": "w2",
+            "from": "ultrasonic-1:TRIG",
+            "to": "mcu:9",
+            "color": "yellow"
+          },
+          {
+            "id": "w3",
+            "from": "ultrasonic-1:ECHO",
+            "to": "mcu:10",
+            "color": "green"
+          },
+          {
+            "id": "w4",
+            "from": "ultrasonic-1:GND",
+            "to": "mcu:GND.1",
+            "color": "black"
+          }
+        ]
+      }
+    },
+    "sensor-pir:56091c3744ae279b4c10b3e6e5a5490f25460760": {
+      "board": "arduino-uno",
+      "language": "arduino",
+      "diagram": {
+        "board": "arduino-uno",
+        "parts": [
+          {
+            "id": "mcu",
+            "type": "__board__:arduino-uno",
+            "x": 40,
+            "y": 220,
+            "rotation": 0
+          },
+          {
+            "id": "pir-0",
+            "type": "pir",
+            "x": 520,
+            "y": 60,
+            "rotation": 0
+          }
+        ],
+        "wires": [
+          {
+            "id": "w0",
+            "from": "mcu:5V",
+            "to": "pir-0:VCC",
+            "color": "red"
+          },
+          {
+            "id": "w1",
+            "from": "mcu:GND.1",
+            "to": "pir-0:GND",
+            "color": "black"
+          },
+          {
+            "id": "w2",
+            "from": "mcu:7",
+            "to": "pir-0:OUT",
+            "color": "blue"
+          }
+        ]
+      }
+    },
+    "sensor-dht:b715e86896481c3fb27435fd333d8a6c0f73db36": {
+      "board": "arduino-uno",
+      "language": "arduino",
+      "diagram": {
+        "board": "arduino-uno",
+        "parts": [
+          {
+            "id": "mcu",
+            "type": "__board__:arduino-uno",
+            "x": 40,
+            "y": 220,
+            "rotation": 0
+          },
+          {
+            "id": "dht22-1",
+            "type": "dht22",
+            "x": 520,
+            "y": 60,
+            "rotation": 0,
+            "props": {}
+          }
+        ],
+        "wires": [
+          {
+            "id": "w1",
+            "from": "dht22-1:VCC",
+            "to": "mcu:5V",
+            "color": "red"
+          },
+          {
+            "id": "w2",
+            "from": "dht22-1:GND",
+            "to": "mcu:GND.1",
+            "color": "black"
+          },
+          {
+            "id": "w3",
+            "from": "dht22-1:SDA",
+            "to": "mcu:2",
+            "color": "yellow"
+          }
+        ]
+      }
+    },
+    "sensor-ldr:7c23b413f2e91d4c53e52f5952299184fefaefce": {
+      "board": "arduino-uno",
+      "language": "arduino",
+      "diagram": {
+        "board": "arduino-uno",
+        "parts": [
+          {
+            "id": "mcu",
+            "type": "__board__:arduino-uno",
+            "x": 40,
+            "y": 220,
+            "rotation": 0
+          },
+          {
+            "id": "photoresistor-1",
+            "type": "photoresistor",
+            "x": 520,
+            "y": 60,
+            "rotation": 0,
+            "props": {}
+          },
+          {
+            "id": "led-1",
+            "type": "led",
+            "x": 520,
+            "y": 270,
+            "rotation": 0,
+            "props": {}
+          },
+          {
+            "id": "resistor-1",
+            "type": "resistor",
+            "x": 520,
+            "y": 480,
+            "rotation": 0,
+            "props": {}
+          }
+        ],
+        "wires": [
+          {
+            "id": "wire-1",
+            "from": "mcu:5V",
+            "to": "photoresistor-1:VCC",
+            "color": "red"
+          },
+          {
+            "id": "wire-2",
+            "from": "photoresistor-1:GND",
+            "to": "mcu:GND.1",
+            "color": "black"
+          },
+          {
+            "id": "wire-3",
+            "from": "photoresistor-1:AO",
+            "to": "mcu:A0",
+            "color": "blue"
+          },
+          {
+            "id": "wire-4",
+            "from": "mcu:13",
+            "to": "resistor-1:1",
+            "color": "green"
+          },
+          {
+            "id": "wire-5",
+            "from": "resistor-1:2",
+            "to": "led-1:A",
+            "color": "yellow"
+          },
+          {
+            "id": "wire-6",
+            "from": "led-1:C",
+            "to": "mcu:GND.1",
+            "color": "black"
+          }
+        ]
+      }
+    },
+    "sensor-sound:747c18abbd7b012336d8cdefd922fc0c0b9465bc": {
+      "board": "arduino-uno",
+      "language": "arduino",
+      "diagram": {
+        "board": "arduino-uno",
+        "parts": [
+          {
+            "id": "mcu",
+            "type": "__board__:arduino-uno",
+            "x": 40,
+            "y": 220,
+            "rotation": 0
+          },
+          {
+            "id": "sound-1",
+            "type": "sound",
+            "x": 520,
+            "y": 60,
+            "rotation": 0,
+            "props": {}
+          }
+        ],
+        "wires": [
+          {
+            "id": "w1",
+            "from": "sound-1:VCC",
+            "to": "mcu:5V",
+            "color": "red"
+          },
+          {
+            "id": "w2",
+            "from": "sound-1:GND",
+            "to": "mcu:GND.1",
+            "color": "black"
+          },
+          {
+            "id": "w3",
+            "from": "sound-1:DOUT",
+            "to": "mcu:7",
+            "color": "orange"
+          },
+          {
+            "id": "w4",
+            "from": "sound-1:AOUT",
+            "to": "mcu:A0",
+            "color": "blue"
+          }
+        ]
+      }
+    },
+    "sensor-mq2:c53a5965d6053191b0682bc21516239db02e23a7": {
+      "board": "arduino-uno",
+      "language": "arduino",
+      "diagram": {
+        "board": "arduino-uno",
+        "parts": [
+          {
+            "id": "mcu",
+            "type": "__board__:arduino-uno",
+            "x": 40,
+            "y": 220,
+            "rotation": 0
+          },
+          {
+            "id": "gas-1",
+            "type": "gas",
+            "x": 520,
+            "y": 60,
+            "rotation": 0
+          }
+        ],
+        "wires": [
+          {
+            "id": "w-1",
+            "from": "gas-1:VCC",
+            "to": "mcu:5V",
+            "color": "red"
+          },
+          {
+            "id": "w-2",
+            "from": "gas-1:GND",
+            "to": "mcu:GND.1",
+            "color": "black"
+          },
+          {
+            "id": "w-3",
+            "from": "gas-1:AOUT",
+            "to": "mcu:A0",
+            "color": "orange"
+          },
+          {
+            "id": "w-4",
+            "from": "gas-1:DOUT",
+            "to": "mcu:8",
+            "color": "blue"
+          }
+        ]
+      }
+    },
+    "sensor-flame:e484ae425b37bfcaebc74411914434127d64bb78": {
+      "board": "arduino-uno",
+      "language": "arduino",
+      "diagram": {
+        "board": "arduino-uno",
+        "parts": [
+          {
+            "id": "mcu",
+            "type": "__board__:arduino-uno",
+            "x": 40,
+            "y": 220,
+            "rotation": 0
+          },
+          {
+            "id": "flame-1",
+            "type": "flame",
+            "x": 520,
+            "y": 60,
+            "rotation": 0
+          }
+        ],
+        "wires": [
+          {
+            "id": "w1",
+            "from": "mcu:5V",
+            "to": "flame-1:VCC",
+            "color": "red"
+          },
+          {
+            "id": "w2",
+            "from": "mcu:GND.1",
+            "to": "flame-1:GND",
+            "color": "black"
+          },
+          {
+            "id": "w3",
+            "from": "mcu:6",
+            "to": "flame-1:DOUT",
+            "color": "yellow"
+          },
+          {
+            "id": "w4",
+            "from": "mcu:A0",
+            "to": "flame-1:AOUT",
+            "color": "green"
+          }
+        ]
+      }
+    },
+    "sensor-mpu6050:86022df4b8cf171d7646de4626a529d99ee50a91": {
+      "board": "arduino-uno",
+      "language": "arduino",
+      "diagram": {
+        "board": "arduino-uno",
+        "parts": [
+          {
+            "id": "mcu",
+            "type": "__board__:arduino-uno",
+            "x": 40,
+            "y": 220,
+            "rotation": 0
+          },
+          {
+            "id": "mpu6050-1",
+            "type": "mpu6050",
+            "x": 520,
+            "y": 60,
+            "rotation": 0,
+            "props": {}
+          }
+        ],
+        "wires": [
+          {
+            "id": "wire1",
+            "from": "mpu6050-1:VCC",
+            "to": "mcu:5V",
+            "color": "#ff0000"
+          },
+          {
+            "id": "wire2",
+            "from": "mpu6050-1:GND",
+            "to": "mcu:GND.1",
+            "color": "#000000"
+          },
+          {
+            "id": "wire3",
+            "from": "mpu6050-1:SCL",
+            "to": "mcu:A5",
+            "color": "#00ff00"
+          },
+          {
+            "id": "wire4",
+            "from": "mpu6050-1:SDA",
+            "to": "mcu:A4",
+            "color": "#0000ff"
+          }
+        ]
+      }
+    },
+    "sensor-ir:0c42b5c41ecbbd3fd25fbbc53095e584618026a3": {
+      "board": "arduino-uno",
+      "language": "arduino",
+      "diagram": {
+        "board": "arduino-uno",
+        "parts": [
+          {
+            "id": "mcu",
+            "type": "__board__:arduino-uno",
+            "x": 40,
+            "y": 220,
+            "rotation": 0
+          },
+          {
+            "id": "ir-receiver-1",
+            "type": "ir-receiver",
+            "x": 520,
+            "y": 60,
+            "rotation": 0,
+            "props": {}
+          }
+        ],
+        "wires": [
+          {
+            "id": "wire-4",
+            "from": "ir-receiver-1:VCC",
+            "to": "mcu:5V",
+            "color": "red"
+          },
+          {
+            "id": "wire-5",
+            "from": "ir-receiver-1:GND",
+            "to": "mcu:GND.1",
+            "color": "black"
+          },
+          {
+            "id": "wire-6",
+            "from": "ir-receiver-1:DAT",
+            "to": "mcu:11",
+            "color": "orange"
+          }
+        ]
+      }
+    },
+    "sensor-tilt:9b1a26c4425b3dd86543e702e545f61edaa6e8ee": {
+      "board": "arduino-uno",
+      "language": "arduino",
+      "diagram": {
+        "board": "arduino-uno",
+        "parts": [
+          {
+            "id": "mcu",
+            "type": "__board__:arduino-uno",
+            "x": 40,
+            "y": 220,
+            "rotation": 0
+          },
+          {
+            "id": "tilt-switch-1",
+            "type": "tilt-switch",
+            "x": 520,
+            "y": 60,
+            "rotation": 0,
+            "props": {}
+          },
+          {
+            "id": "led-1",
+            "type": "led",
+            "x": 520,
+            "y": 270,
+            "rotation": 0,
+            "props": {}
+          },
+          {
+            "id": "resistor-1",
+            "type": "resistor",
+            "x": 520,
+            "y": 480,
+            "rotation": 0,
+            "props": {}
+          }
+        ],
+        "wires": [
+          {
+            "id": "w3",
+            "from": "mcu:13",
+            "to": "led-1:A",
+            "color": "green"
+          },
+          {
+            "id": "w4",
+            "from": "led-1:C",
+            "to": "resistor-1:1",
+            "color": "orange"
+          },
+          {
+            "id": "w5",
+            "from": "resistor-1:2",
+            "to": "mcu:GND.1",
+            "color": "black"
+          },
+          {
+            "id": "tw4",
+            "from": "tilt-switch-1:VCC",
+            "to": "mcu:5V",
+            "color": "red"
+          },
+          {
+            "id": "tw5",
+            "from": "tilt-switch-1:GND",
+            "to": "mcu:GND.1",
+            "color": "black"
+          },
+          {
+            "id": "tw6",
+            "from": "tilt-switch-1:OUT",
+            "to": "mcu:3",
+            "color": "green"
+          }
+        ]
+      }
+    },
+    "pico-blink:9f52541f611a2d2b2e22815b210292200c2f3cf3": {
+      "board": "raspberry-pi-pico",
+      "language": "micropython",
+      "diagram": {
+        "board": "raspberry-pi-pico",
+        "parts": [
+          {
+            "id": "mcu",
+            "type": "__board__:raspberry-pi-pico",
+            "x": 40,
+            "y": 220,
+            "rotation": 0
+          },
+          {
+            "id": "led-1",
+            "type": "led",
+            "x": 520,
+            "y": 60,
+            "rotation": 0,
+            "props": {}
+          },
+          {
+            "id": "resistor-1",
+            "type": "resistor",
+            "x": 520,
+            "y": 270,
+            "rotation": 0,
+            "props": {}
+          }
+        ],
+        "wires": [
+          {
+            "id": "wire-1",
+            "from": "mcu:GP25",
+            "to": "resistor-1:1",
+            "color": "green"
+          },
+          {
+            "id": "wire-2",
+            "from": "resistor-1:2",
+            "to": "led-1:A",
+            "color": "green"
+          },
+          {
+            "id": "wire-3",
+            "from": "led-1:C",
+            "to": "mcu:GND.1",
+            "color": "black"
+          }
+        ]
+      }
+    },
+    "pico-button-adc:1298aca002b4b76e3eb46d05ad0718393b18ebda": {
+      "board": "raspberry-pi-pico",
+      "language": "micropython",
+      "diagram": {
+        "board": "raspberry-pi-pico",
+        "parts": [
+          {
+            "id": "mcu",
+            "type": "__board__:raspberry-pi-pico",
+            "x": 120,
+            "y": 40,
+            "rotation": 0
+          },
+          {
+            "id": "btn-1",
+            "type": "pushbutton",
+            "x": 450,
+            "y": 40,
+            "rotation": 0,
+            "props": {}
+          },
+          {
+            "id": "pot-1",
+            "type": "potentiometer",
+            "x": 450,
+            "y": 190,
+            "rotation": 0,
+            "props": {}
+          }
+        ],
+        "wires": [
+          {
+            "id": "w1",
+            "from": "btn-1:1.l",
+            "to": "mcu:GP14",
+            "color": "green"
+          },
+          {
+            "id": "w2",
+            "from": "btn-1:2.r",
+            "to": "mcu:3V3",
+            "color": "red"
+          },
+          {
+            "id": "w3",
+            "from": "pot-1:SIG",
+            "to": "mcu:GP26",
+            "color": "orange"
+          },
+          {
+            "id": "w4",
+            "from": "pot-1:VCC",
+            "to": "mcu:3V3",
+            "color": "red"
+          },
+          {
+            "id": "w5",
+            "from": "pot-1:GND",
+            "to": "mcu:GND.1",
+            "color": "black"
+          }
+        ]
+      }
+    },
+    "pico-pwm-servo:d2f5bc5690ffa6c57c146682e0cc71b0b939c733": {
+      "board": "raspberry-pi-pico",
+      "language": "micropython",
+      "diagram": {
+        "board": "raspberry-pi-pico",
+        "parts": [
+          {
+            "id": "mcu",
+            "type": "__board__:raspberry-pi-pico",
+            "x": 120,
+            "y": 40,
+            "rotation": 0
+          },
+          {
+            "id": "led-1",
+            "type": "led",
+            "x": 450,
+            "y": 40,
+            "rotation": 0,
+            "props": {}
+          },
+          {
+            "id": "r-1",
+            "type": "resistor",
+            "x": 450,
+            "y": 190,
+            "rotation": 0,
+            "props": {}
+          },
+          {
+            "id": "bz-1",
+            "type": "buzzer",
+            "x": 450,
+            "y": 340,
+            "rotation": 0,
+            "props": {}
+          },
+          {
+            "id": "servo-1",
+            "type": "servo",
+            "x": 450,
+            "y": 490,
+            "rotation": 0,
+            "props": {}
+          }
+        ],
+        "wires": [
+          {
+            "id": "w1",
+            "from": "led-1:A",
+            "to": "r-1:1",
+            "color": "green"
+          },
+          {
+            "id": "w2",
+            "from": "r-1:2",
+            "to": "mcu:GP15",
+            "color": "green"
+          },
+          {
+            "id": "w3",
+            "from": "led-1:C",
+            "to": "mcu:GND.3",
+            "color": "black"
+          },
+          {
+            "id": "w4",
+            "from": "bz-1:1",
+            "to": "mcu:GP16",
+            "color": "orange"
+          },
+          {
+            "id": "w5",
+            "from": "bz-1:2",
+            "to": "mcu:GND.3",
+            "color": "black"
+          },
+          {
+            "id": "w6",
+            "from": "servo-1:PWM",
+            "to": "mcu:GP0",
+            "color": "yellow"
+          },
+          {
+            "id": "w7",
+            "from": "servo-1:V+",
+            "to": "mcu:VBUS",
+            "color": "red"
+          },
+          {
+            "id": "w8",
+            "from": "servo-1:GND",
+            "to": "mcu:GND.1",
+            "color": "black"
+          }
+        ]
+      }
+    }
+  }
+}

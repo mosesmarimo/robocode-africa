@@ -1,16 +1,32 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service";
 import { PointsService } from "../../common/points.service";
-import { levelProgress } from "../../domain/constants";
+import { GamificationService } from "../../common/gamification.service";
+import { POINTS, levelProgress, challengeXp, trackForLanguage } from "../../domain/constants";
 import type { AuthUser } from "../../auth/auth-user.type";
-import { gradeCode, type CheckRule } from "../../sim/grader";
+import { gradeCode, gradeOutput, type CheckRule, type GradeResult } from "../../sim/grader";
+import { AiService } from "../ai/ai.service";
+import { RunService, RateLimitExceededError } from "../run/run.service";
+import { RUN_LANGUAGES, type RunLanguage } from "../run/dto";
+import { TracksService } from "../tracks/tracks.service";
 import type { Prisma } from "@prisma/client";
+
+// File extension used when handing a coding-challenge submission to the AI
+// run-code runtime, so it runs the snippet as the right language.
+const CODING_EXT: Record<string, string> = {
+  python: "py", javascript: "js", typescript: "ts", go: "go", rust: "rs",
+  cpp: "cpp", csharp: "cs", sql: "sql", html: "html", css: "css", micropython: "py",
+};
 
 @Injectable()
 export class CompetitionsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly points: PointsService,
+    private readonly gamification: GamificationService,
+    private readonly ai: AiService,
+    private readonly runService: RunService,
+    private readonly tracks: TracksService,
   ) {}
 
   // =========================================================================
@@ -65,6 +81,8 @@ export class CompetitionsService {
         rounds: { orderBy: { order: "asc" } },
         entries: {
           orderBy: { totalScore: "desc" },
+          // Bound the standings payload to a top-N for large competitions.
+          take: 100,
           include: {
             team: { select: { id: true, name: true, avatarSeed: true } },
           },
@@ -81,12 +99,43 @@ export class CompetitionsService {
       }
     }
 
-    // Check if the current user already has their own entry
-    const hasEntered = competition.entries.some((e) => e.userId === user.id);
+    // CompetitionEntry has no `user` relation, so attach solo-entrant info for the
+    // standings list (team entries already include their team).
+    const soloUserIds = competition.entries
+      .filter((e) => e.userId && !e.teamId)
+      .map((e) => e.userId as string);
+    const soloUsers = soloUserIds.length
+      ? await this.prisma.user.findMany({
+          where: { id: { in: soloUserIds } },
+          select: { id: true, displayName: true, avatarSeed: true },
+        })
+      : [];
+    const userById = new Map(soloUsers.map((u) => [u.id, u]));
+    const entries = competition.entries.map((e) => ({
+      ...e,
+      user: e.userId ? (userById.get(e.userId) ?? null) : null,
+    }));
+
+    // The current user counts as entered via a solo entry OR any team they belong to.
+    // Use a targeted query (not the capped standings list) so a user whose entry
+    // falls outside the top-N is still correctly detected as entered.
+    const myTeamIds = (
+      await this.prisma.teamMember.findMany({
+        where: { userId: user.id, status: "active" },
+        select: { teamId: true },
+      })
+    ).map((m) => m.teamId);
+    const myEntryCount = await this.prisma.competitionEntry.count({
+      where: {
+        competitionId: competition.id,
+        OR: [{ userId: user.id }, ...(myTeamIds.length ? [{ teamId: { in: myTeamIds } }] : [])],
+      },
+    });
+    const hasEntered = myEntryCount > 0;
     const canEnter =
       !hasEntered && (competition.status === "live" || competition.status === "upcoming");
 
-    return { competition, hasEntered, canEnter };
+    return { competition: { ...competition, entries }, hasEntered, canEnter };
   }
 
   // =========================================================================
@@ -100,10 +149,24 @@ export class CompetitionsService {
       where: { id: competitionId },
     });
     if (!competition) {
-      return { ok: false, error: "Competition not found." };
+      throw new NotFoundException({ message: "Competition not found." });
+    }
+    // Tenant scope: only global competitions or the user's own school.
+    if (competition.tenantId !== null && competition.tenantId !== user.tenantId) {
+      throw new NotFoundException({ message: "Competition not found." });
     }
     if (competition.status !== "live" && competition.status !== "upcoming") {
-      return { ok: false, error: "This competition is no longer accepting entries." };
+      throw new BadRequestException({ message: "This competition is no longer accepting entries." });
+    }
+
+    // Entering as a team requires being an active member of that team (in this tenant).
+    if (teamId) {
+      const membership = await this.prisma.teamMember.findFirst({
+        where: { teamId, userId: user.id, status: "active", team: { tenantId: user.tenantId } },
+      });
+      if (!membership) {
+        throw new ForbiddenException({ message: "You can only enter a team you belong to." });
+      }
     }
 
     // Check for an existing entry (by user or by team)
@@ -113,19 +176,28 @@ export class CompetitionsService {
 
     const existing = await this.prisma.competitionEntry.findFirst({ where: existingWhere });
     if (existing) {
-      return { ok: false, error: "You have already entered this competition." };
+      throw new BadRequestException({ message: "You have already entered this competition." });
     }
 
-    // Create the entry
-    const entry = await this.prisma.competitionEntry.create({
-      data: {
-        competitionId,
-        userId: teamId ? null : user.id,
-        teamId: teamId ?? null,
-        status: "registered",
-        totalScore: 0,
-      },
-    });
+    // Create the entry. The DB @@unique([competitionId,userId]) / ([competitionId,teamId])
+    // closes the check-then-create race: a concurrent duplicate throws P2002.
+    let entry;
+    try {
+      entry = await this.prisma.competitionEntry.create({
+        data: {
+          competitionId,
+          userId: teamId ? null : user.id,
+          teamId: teamId ?? null,
+          status: "registered",
+          totalScore: 0,
+        },
+      });
+    } catch (e) {
+      if (e && typeof e === "object" && (e as { code?: string }).code === "P2002") {
+        throw new BadRequestException({ message: "You have already entered this competition." });
+      }
+      throw e;
+    }
 
     // Award badge + points (idempotent per user+competition)
     const idemKey = `competition-enter:${competitionId}:${user.id}`;
@@ -133,7 +205,7 @@ export class CompetitionsService {
       this.points.awardBadge(user.id, "competitor"),
       this.points.awardPoints({
         userId: user.id,
-        delta: 75,
+        delta: POINTS.COMPETITION_PARTICIPATE,
         reason: "Joined a competition",
         refType: "competition",
         refId: competitionId,
@@ -336,7 +408,59 @@ export class CompetitionsService {
     const task = await this.prisma.task.findUnique({ where: { id: taskId } });
     if (!task) throw new NotFoundException("Task not found");
 
-    const result = gradeCode(code, task.checks as { rules?: CheckRule[] } | null);
+    const checks = task.checks as { rules?: CheckRule[] } | null;
+    const lang = task.language;
+    let result: GradeResult;
+    // Auditable record of which runtime actually produced the graded output —
+    // "server" (jailed docker runner, matching RunOutcome.engine) or "ai"
+    // (AI-simulated runtime). Left undefined for arduino/robotics
+    // submissions, which use neither (the local RVM simulator grades those
+    // instead — see the `else` branch below).
+    let engine: "server" | "ai" | undefined;
+    if (lang && lang !== "arduino") {
+      // Coding-language challenge: run the submission and grade its stdout.
+      // (Arduino/robotics tasks fall through to the simulator below.)
+      const ext = CODING_EXT[lang] ?? "txt";
+      const files = [{ name: `main.${ext}`, content: code }];
+      // Prefer the jailed sandbox runner; it only supports a subset of
+      // languages (see RUN_LANGUAGES — excludes html/css/micropython), and it
+      // may be unconfigured (docker missing) in some environments — in both
+      // cases fall back to the AI-simulated runtime so grading still works.
+      // It may also reject the run with RateLimitExceededError if the caller
+      // already spent their interactive Studio "Run" budget — grading must
+      // never crash on that, so it falls back to AI the same way.
+      let output = "";
+      let ok = false;
+      let runtimeError = true;
+      let text: string | undefined;
+      if ((RUN_LANGUAGES as readonly string[]).includes(lang)) {
+        try {
+          const run = await this.runService.execute(user, lang as RunLanguage, files);
+          if (run.configured) {
+            engine = "server";
+            output = run.output;
+            ok = run.ok;
+            runtimeError = run.error;
+            text = run.text;
+          }
+        } catch (err) {
+          if (!(err instanceof RateLimitExceededError)) throw err;
+          // Rate-limited: fall through to the AI-simulated runtime below.
+        }
+      }
+      if (engine !== "server") {
+        engine = "ai";
+        const run = await this.ai.runCode(user, lang, files);
+        output = run.output;
+        ok = run.ok;
+        runtimeError = run.error;
+        text = run.text;
+      }
+      const runError = ok && !runtimeError ? undefined : (text || "Could not run your code.");
+      result = gradeOutput(output, checks, runError);
+    } else {
+      result = gradeCode(code, checks, { board: task.boardType });
+    }
 
     await this.prisma.submission.create({
       data: {
@@ -345,22 +469,185 @@ export class CompetitionsService {
         code,
         status: result.passed ? "passed" : "failed",
         score: result.score,
-        autoResult: result as unknown as Prisma.InputJsonValue,
+        autoResult: (engine ? { ...result, engine } : result) as unknown as Prisma.InputJsonValue,
       },
     });
 
     if (result.passed) {
-      await this.points.awardPoints({
+      // Challenge language comes straight off the task (null → an
+      // Arduino/robotics challenge graded by the local simulator, per the
+      // `lang && lang !== "arduino"` branch above). Track: prefer the track
+      // derived from that language (frozen 12 → coding|robotics); fall back
+      // to the task's own `track` field only when it's already one of the
+      // two gamification tracks (a task.track of "ai" isn't a valid ledger
+      // track, so it's left untagged rather than mis-tagged).
+      const track =
+        trackForLanguage(task.language) ??
+        (task.track === "coding" || task.track === "robotics" ? task.track : undefined);
+      await this.gamification.completeTask({
         userId: user.id,
-        delta: task.points,
-        reason: `Completed challenge: ${task.title}`,
-        refType: "task",
+        type: "challenge",
         refId: taskId,
-        idemKey: `task-${user.id}-${taskId}`,
+        language: task.language,
+        track,
+        xpOverride: challengeXp(task.difficulty),
       });
+      await this.tracks.onChallengePassed(user.id, taskId);
       if (task.track === "ai") await this.points.awardBadge(user.id, "ai-explorer");
     }
 
     return result;
+  }
+
+  // =========================================================================
+  // Post-solve solutions gallery (Codewars/Exercism-style) — see
+  // docs/superpowers/specs/2026-07-04-competitor-iterations.md (Iteration 3).
+  //
+  // Youth-safety: every read/write below is gated on the caller themselves
+  // having a PASSED submission for the task, so a student can never peek at
+  // (or like) other solutions before solving it themselves ("no spoiling").
+  // The gallery response is fully anonymized — no author id/displayName/email
+  // is ever attached to a solution row.
+  // =========================================================================
+
+  /** Throws if `userId` has no passed submission for `taskId` (the shared gate
+   *  for viewing and liking other students' solutions). */
+  private async assertPassedTask(userId: string, taskId: string): Promise<void> {
+    const passed = await this.prisma.submission.findFirst({
+      where: { userId, taskId, status: "passed" },
+      select: { id: true },
+    });
+    if (!passed) {
+      throw new ForbiddenException("Solve it first to see other solutions.");
+    }
+  }
+
+  /**
+   * GET /challenges/:taskId/solutions — up to 20 other students' accepted
+   * solutions for this task (never the caller's own), deduped to one per
+   * author (their latest passed submission), ordered by likeCount desc then
+   * recency. Anonymized: no author info is attached to the response.
+   */
+  async getChallengeSolutions(user: AuthUser, taskId: string) {
+    const task = await this.prisma.task.findUnique({
+      where: { id: taskId },
+      select: { id: true, language: true },
+    });
+    if (!task) throw new NotFoundException("Challenge not found");
+
+    await this.assertPassedTask(user.id, taskId);
+
+    // Bounded pull of the most recent passed submissions for this task from
+    // other authors — enough to dedup-by-author and still fill a top-20
+    // gallery even on a popular task with many low-like submissions.
+    const candidates = await this.prisma.submission.findMany({
+      where: { taskId, status: "passed", userId: { not: user.id } },
+      orderBy: { createdAt: "desc" },
+      take: 500,
+      select: {
+        id: true,
+        userId: true,
+        code: true,
+        isExemplar: true,
+        createdAt: true,
+        _count: { select: { likes: true } },
+      },
+    });
+
+    // Dedup to one solution per author. Candidates are already ordered by
+    // createdAt desc, so the first occurrence per userId is their latest.
+    const seenAuthors = new Set<string>();
+    const deduped: typeof candidates = [];
+    for (const c of candidates) {
+      if (seenAuthors.has(c.userId)) continue;
+      seenAuthors.add(c.userId);
+      deduped.push(c);
+    }
+
+    const likedRows = deduped.length
+      ? await this.prisma.solutionLike.findMany({
+          where: { userId: user.id, submissionId: { in: deduped.map((d) => d.id) } },
+          select: { submissionId: true },
+        })
+      : [];
+    const likedSet = new Set(likedRows.map((l) => l.submissionId));
+
+    const solutions = deduped
+      .map((c) => ({
+        submissionId: c.id,
+        language: task.language,
+        code: c.code ?? "",
+        likeCount: c._count.likes,
+        likedByMe: likedSet.has(c.id),
+        exemplar: c.isExemplar,
+        _createdAt: c.createdAt, // sort key only — stripped before returning
+      }))
+      .sort((a, b) => b.likeCount - a.likeCount || b._createdAt.getTime() - a._createdAt.getTime())
+      .slice(0, 20)
+      .map(({ _createdAt, ...row }) => row);
+
+    return { solutions };
+  }
+
+  /**
+   * POST /challenges/solutions/:submissionId/like — toggle the caller's like
+   * on another student's accepted solution. Gated the same way as the gallery
+   * read (caller must have passed the task); the target submission must
+   * itself be passed, and a student can't like their own solution.
+   */
+  async toggleSolutionLike(user: AuthUser, submissionId: string) {
+    const submission = await this.prisma.submission.findUnique({
+      where: { id: submissionId },
+      select: { id: true, taskId: true, status: true, userId: true },
+    });
+    if (!submission) throw new NotFoundException("Solution not found");
+    if (submission.status !== "passed") {
+      throw new ForbiddenException("You can only like accepted solutions.");
+    }
+    if (submission.userId === user.id) {
+      throw new ForbiddenException("You can't like your own solution.");
+    }
+    await this.assertPassedTask(user.id, submission.taskId);
+
+    // Toggle: delete-then-create (mirrors posts.service.ts's like toggle).
+    // The @@unique([submissionId, userId]) constraint makes a concurrent
+    // double-create race safe — caught below and treated as already-liked.
+    return this.prisma.$transaction(async (tx) => {
+      const del = await tx.solutionLike.deleteMany({ where: { submissionId, userId: user.id } });
+      if (del.count > 0) {
+        const likeCount = await tx.solutionLike.count({ where: { submissionId } });
+        return { liked: false, likeCount };
+      }
+      try {
+        await tx.solutionLike.create({ data: { submissionId, userId: user.id } });
+      } catch (e) {
+        if (!(e && typeof e === "object" && (e as { code?: string }).code === "P2002")) throw e;
+      }
+      const likeCount = await tx.solutionLike.count({ where: { submissionId } });
+      return { liked: true, likeCount };
+    });
+  }
+
+  /**
+   * POST /challenges/solutions/:submissionId/exemplar — teacher/admin toggle
+   * for curating a solution as the highlighted exemplar in the gallery.
+   * Gated by the `content.author` capability (teacher/school_admin/super_admin
+   * — see domain/roles.ts), the same capability used to author lesson content.
+   */
+  async toggleSolutionExemplar(submissionId: string) {
+    const submission = await this.prisma.submission.findUnique({
+      where: { id: submissionId },
+      select: { id: true, status: true, isExemplar: true },
+    });
+    if (!submission) throw new NotFoundException("Solution not found");
+    if (submission.status !== "passed") {
+      throw new BadRequestException("Only accepted solutions can be marked as an exemplar.");
+    }
+    const updated = await this.prisma.submission.update({
+      where: { id: submissionId },
+      data: { isExemplar: !submission.isExemplar },
+      select: { isExemplar: true },
+    });
+    return { ok: true, isExemplar: updated.isExemplar };
   }
 }

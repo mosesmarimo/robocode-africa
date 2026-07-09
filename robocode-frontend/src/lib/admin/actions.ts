@@ -87,6 +87,23 @@ export async function reinstateUser(userId: string) {
 }
 
 // ---------------------------------------------------------------------------
+// Reset a user's password (super admin). Returns a temp password when generated.
+// ---------------------------------------------------------------------------
+
+export async function resetUserPassword(userId: string, password?: string) {
+  try {
+    const res = await apiPost<{ ok: boolean; temporaryPassword?: string }>(
+      `/admin/users/${userId}/reset-password`,
+      password ? { password } : {},
+    );
+    return { ok: true as const, temporaryPassword: res.temporaryPassword };
+  } catch (e) {
+    if (e instanceof ApiError) return { ok: false as const, error: e.message, fieldErrors: e.fieldErrors };
+    throw e;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Suspend a tenant
 // ---------------------------------------------------------------------------
 

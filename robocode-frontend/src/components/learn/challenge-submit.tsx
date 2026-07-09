@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
+import Link from "next/link";
 import { CheckCircle2, XCircle, Zap, PlayCircle, Terminal } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -11,6 +12,8 @@ import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { submitSolution } from "@/lib/learn/actions";
+import { getTracksForTask, type TaskTrackProgress } from "@/lib/tracks/actions";
+import { SolutionsGallery } from "@/components/challenges/solutions-gallery";
 
 interface GradeResult {
   passed: boolean;
@@ -24,13 +27,32 @@ interface Props {
   taskId: string;
   starterCode: string;
   alreadyPassed?: boolean;
+  /** Task language — a coding language (not arduino/null) shows program "Output"
+   *  instead of the Arduino "Serial output". */
+  language?: string | null;
 }
 
-export function ChallengeSubmit({ taskId, starterCode, alreadyPassed = false }: Props) {
+export function ChallengeSubmit({ taskId, starterCode, alreadyPassed = false, language }: Props) {
+  const isCoding = !!language && language !== "arduino";
   const [code, setCode] = useState(starterCode);
   const [result, setResult] = useState<GradeResult | null>(null);
   const [pending, startTransition] = useTransition();
   const [celebrated, setCelebrated] = useState(alreadyPassed);
+  const [trackProgress, setTrackProgress] = useState<TaskTrackProgress[]>([]);
+
+  // Post-pass track nudge — fetched once the celebration state flips true
+  // (either from a fresh pass just below, or from `alreadyPassed` on mount).
+  useEffect(() => {
+    if (!celebrated) return;
+    let cancelled = false;
+    (async () => {
+      const tracks = await getTracksForTask(taskId);
+      if (!cancelled) setTrackProgress(tracks);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [celebrated, taskId]);
 
   function handleSubmit() {
     startTransition(async () => {
@@ -168,13 +190,13 @@ export function ChallengeSubmit({ taskId, starterCode, alreadyPassed = false }: 
               </div>
             )}
 
-            {/* Serial output */}
+            {/* Program output (stdout for coding, Serial for Arduino) */}
             {result.serial.length > 0 && (
               <>
                 <Separator />
                 <div className="space-y-2">
                   <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    <Terminal className="size-3.5" /> Serial output
+                    <Terminal className="size-3.5" /> {isCoding ? "Output" : "Serial output"}
                   </p>
                   <ScrollArea className="max-h-40 rounded-lg border border-border bg-black/80">
                     <div className="p-3">
@@ -191,6 +213,36 @@ export function ChallengeSubmit({ taskId, starterCode, alreadyPassed = false }: 
           </CardContent>
         </Card>
       )}
+
+      {/* Post-pass track nudge — nothing renders when this task isn't part
+          of any published track. */}
+      {celebrated && trackProgress.length > 0 && (
+        <div className="space-y-2 rounded-xl border border-border bg-muted/40 p-4">
+          {trackProgress.map((t) => {
+            const complete = t.itemCount > 0 && t.doneCount === t.itemCount;
+            return (
+              <div key={t.slug} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-sm">
+                <span className="font-medium">
+                  {t.title}: {t.doneCount}/{t.itemCount}
+                </span>
+                {complete ? (
+                  <Link href="/app/badges" className="font-medium text-primary hover:underline">
+                    🎓 Track complete — view your certificate
+                  </Link>
+                ) : (
+                  <Link href={`/app/tracks/${t.slug}`} className="text-primary hover:underline">
+                    View track →
+                  </Link>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Post-solve solutions gallery — only reachable once this task has
+          been passed (the backend re-checks this gate on every request). */}
+      {celebrated && <SolutionsGallery taskId={taskId} />}
     </div>
   );
 }

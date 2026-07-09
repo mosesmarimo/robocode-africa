@@ -5,12 +5,41 @@ import { nanoid } from "nanoid";
 import type { Diagram, DiagramPart, DiagramWire } from "@/lib/domain/diagram";
 import { WIRE_COLORS } from "@/lib/domain/diagram";
 import { COMPONENT_BY_ID } from "@/lib/domain/components";
-import { type BoardId } from "@/lib/domain/boards";
+import { getBoard, type BoardId } from "@/lib/domain/boards";
 
 export const GRID = 8;
 const snapGrid = (v: number) => Math.round(v / GRID) * GRID;
 
-type Snapshot = { parts: DiagramPart[]; wires: DiagramWire[] };
+/** Monaco language id for a source file, by extension. */
+export function langForFile(name: string): string {
+  switch (name.split(".").pop()?.toLowerCase()) {
+    case "ino":
+    case "cpp":
+    case "cc":
+    case "h":
+    case "hpp":
+    case "c":
+      return "cpp";
+    case "py":
+      return "python";
+    case "json":
+      return "json";
+    case "md":
+      return "markdown";
+    default:
+      return "plaintext";
+  }
+}
+
+// Undo history covers the board and source files as well as the diagram, so a
+// board switch (which resets the whole workspace) is fully recoverable with ⌘Z.
+type Snapshot = {
+  parts: DiagramPart[];
+  wires: DiagramWire[];
+  board: BoardId;
+  files: StudioFile[];
+  activeFile: string;
+};
 
 export type PendingWire = { from: string; fromXY: { x: number; y: number } } | null;
 
@@ -74,6 +103,15 @@ export interface StudioState {
   readmeContent: () => string;
   setBoard: (b: BoardId) => void;
   setTitle: (t: string) => void;
+  /** Apply an AI "RoboVibe" edit: replace diagram/code/readme atomically (undoable). */
+  applyVibe: (d: {
+    parts?: DiagramPart[];
+    wires?: DiagramWire[];
+    board?: BoardId;
+    code?: string;
+    files?: { name: string; content: string }[];
+    readme?: string;
+  }) => void;
 
   undo: () => void;
   redo: () => void;
@@ -92,7 +130,13 @@ export interface StudioState {
 }
 
 function snapshot(s: StudioState): Snapshot {
-  return { parts: structuredClone(s.parts), wires: structuredClone(s.wires) };
+  return {
+    parts: structuredClone(s.parts),
+    wires: structuredClone(s.wires),
+    board: s.board,
+    files: structuredClone(s.files),
+    activeFile: s.activeFile,
+  };
 }
 
 export const useStudio = create<StudioState>((set, get) => ({
@@ -118,7 +162,9 @@ export const useStudio = create<StudioState>((set, get) => ({
   future: [],
 
   load: (d) => {
-    const sketch = d.files.find((f) => f.name.endsWith(".ino")) ?? d.files[0];
+    // Open the file the board actually runs: main.py on MicroPython boards.
+    const isMicroPython = getBoard((d.diagram.board as BoardId) ?? "arduino-uno").mcuTarget === "rp2040js";
+    const sketch = d.files.find((f) => (isMicroPython ? f.name.endsWith(".py") : f.name.endsWith(".ino"))) ?? d.files[0];
     set({
       projectId: d.projectId,
       title: d.title,
@@ -253,30 +299,116 @@ export const useStudio = create<StudioState>((set, get) => ({
     }),
   sketchContent: () => {
     const s = get();
+    const board = getBoard(s.board);
+    if (board.mcuTarget === "rp2040js") {
+      // Pico runs MicroPython: prefer the first .py file.
+      return (s.files.find((f) => f.name.endsWith(".py")) ?? s.files[0])?.content ?? "";
+    }
     return (s.files.find((f) => f.name.endsWith(".ino")) ?? s.files[0])?.content ?? "";
   },
   readmeContent: () => get().files.find((f) => f.name.toLowerCase() === "readme.md")?.content ?? "",
+  // Selecting a different board starts a FRESH workspace: the canvas keeps only
+  // the new board (no components/wires) and the code window resets to the new
+  // board's starter sketch — old wiring/pins/code never target the new board.
+  // The previous diagram + files land in undo history (⌘Z restores everything).
   setBoard: (b) =>
-    set((s) => ({
-      past: [...s.past, snapshot(s)],
-      future: [],
-      board: b,
-      parts: s.parts.map((p) => (p.id === "mcu" ? { ...p, type: `__board__:${b}` } : p)),
-      dirty: true,
-    })),
+    set((s) => {
+      if (b === s.board) return {};
+      const board = getBoard(b);
+      const sketchName = board.mcuTarget === "rp2040js" ? "main.py" : "sketch.ino";
+      const sketch: StudioFile = { name: sketchName, language: langForFile(sketchName), content: board.starterCode };
+      const readme = s.files.find((f) => f.name.toLowerCase() === "readme.md");
+      return {
+        past: [...s.past, snapshot(s)],
+        future: [],
+        board: b,
+        parts: [{ id: "mcu", type: `__board__:${b}`, x: 360, y: 220, rotation: 0 }],
+        wires: [],
+        files: readme ? [sketch, readme] : [sketch],
+        activeFile: sketchName,
+        selectedId: null,
+        selectedWireId: null,
+        pendingWire: null,
+        pinStates: {},
+        partState: {},
+        serial: [],
+        dirty: true,
+      };
+    }),
   setTitle: (t) => set({ title: t, dirty: true }),
+
+  applyVibe: (d) =>
+    set((s) => {
+      let files = s.files;
+      let activeFile = s.activeFile;
+
+      if (d.files && d.files.length) {
+        // Replace the full source set with the AI's files (keep README unless the
+        // AI also supplied one). Sketch (.ino/.py) first, README last.
+        const incoming = d.files
+          .filter((f) => f.name.toLowerCase() !== "readme.md")
+          .map((f) => ({ name: f.name, language: langForFile(f.name), content: f.content }));
+        const aiReadme = d.files.find((f) => f.name.toLowerCase() === "readme.md")?.content ?? d.readme;
+        const readmeContent = aiReadme ?? s.files.find((f) => f.name.toLowerCase() === "readme.md")?.content;
+        files = [...incoming];
+        if (readmeContent != null) files.push({ name: "README.md", language: "markdown", content: readmeContent });
+        const mainSketch = incoming.find((f) => f.name.endsWith(".ino") || f.name.endsWith(".py")) ?? incoming[0];
+        if (mainSketch) activeFile = mainSketch.name;
+      } else {
+        if (d.code != null) {
+          const sketch = files.find((f) => f.name.endsWith(".ino"));
+          if (sketch) files = files.map((f) => (f.name === sketch.name ? { ...f, content: d.code! } : f));
+        }
+        if (d.readme != null) {
+          const readme = files.find((f) => f.name.toLowerCase() === "readme.md");
+          files = readme
+            ? files.map((f) => (f === readme ? { ...f, content: d.readme! } : f))
+            : [...files, { name: "README.md", language: "markdown", content: d.readme }];
+        }
+      }
+      return {
+        past: [...s.past, snapshot(s)],
+        future: [],
+        parts: d.parts ?? s.parts,
+        wires: d.wires ?? s.wires,
+        board: d.board ?? s.board,
+        files,
+        activeFile,
+        selectedId: null,
+        selectedWireId: null,
+        dirty: true,
+      };
+    }),
 
   undo: () => {
     const s = get();
     const prev = s.past[s.past.length - 1];
     if (!prev) return;
-    set({ parts: prev.parts, wires: prev.wires, past: s.past.slice(0, -1), future: [snapshot(s), ...s.future], dirty: true });
+    set({
+      parts: prev.parts,
+      wires: prev.wires,
+      board: prev.board,
+      files: prev.files,
+      activeFile: prev.activeFile,
+      past: s.past.slice(0, -1),
+      future: [snapshot(s), ...s.future],
+      dirty: true,
+    });
   },
   redo: () => {
     const s = get();
     const next = s.future[0];
     if (!next) return;
-    set({ parts: next.parts, wires: next.wires, future: s.future.slice(1), past: [...s.past, snapshot(s)], dirty: true });
+    set({
+      parts: next.parts,
+      wires: next.wires,
+      board: next.board,
+      files: next.files,
+      activeFile: next.activeFile,
+      future: s.future.slice(1),
+      past: [...s.past, snapshot(s)],
+      dirty: true,
+    });
   },
 
   setAiResult: (r) => set({ aiResult: r }),

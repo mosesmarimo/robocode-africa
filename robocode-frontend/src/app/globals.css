@@ -4,13 +4,13 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /* ----------------------------------------------------------------------------
-   Design tokens — RoboCode.Africa vibrant brand
+   Design tokens — RoboCode.Africa brand (deep navy + vibrant green)
    Brand colours can be overridden per-tenant at runtime via --brand-* vars.
 ---------------------------------------------------------------------------- */
 :root {
-  --brand-primary: #2f6bff;
-  --brand-secondary: #12c8a0;
-  --brand-accent: #ffb020;
+  --brand-primary: #11315c;
+  --brand-secondary: #36b34a;
+  --brand-accent: #5fb73a;
 
   --background: #f6f8fc;
   --foreground: #0b1224;
@@ -23,7 +23,7 @@
   --secondary: var(--brand-secondary);
   --secondary-foreground: #04120e;
   --accent: var(--brand-accent);
-  --accent-foreground: #2a1a00;
+  --accent-foreground: #06210f;
   --muted: #eef2f9;
   --muted-foreground: #5b6478;
   --destructive: #ef4444;
@@ -43,12 +43,15 @@
   --card-foreground: #e8edf9;
   --popover: #0e1426;
   --popover-foreground: #e8edf9;
-  --primary: var(--brand-primary);
-  --primary-foreground: #ffffff;
+  /* Navy brand-primary is illegible as text/icons on a dark background, so the
+     --primary TOKEN is a lighter blue here (brand-primary stays navy for
+     gradient panels). accent-foreground flips light for accent-tinted chips. */
+  --primary: #5b8fef;
+  --primary-foreground: #0a1020;
   --secondary: var(--brand-secondary);
   --secondary-foreground: #04120e;
   --accent: var(--brand-accent);
-  --accent-foreground: #2a1a00;
+  --accent-foreground: #eafff0;
   --muted: #161d33;
   --muted-foreground: #94a0bd;
   --destructive: #f87171;
@@ -57,7 +60,7 @@
   --warning: #fbbf24;
   --border: #1d2742;
   --input: #1d2742;
-  --ring: var(--brand-primary);
+  --ring: var(--primary);
 }
 
 @theme inline {
@@ -132,7 +135,9 @@
 
 @layer utilities {
   .text-gradient {
-    background-image: linear-gradient(100deg, var(--brand-primary), var(--brand-secondary) 60%, var(--brand-accent));
+    /* Use the --primary token (not raw navy brand-primary) so gradient headings
+       stay legible in dark mode, where --primary is a lighter blue. */
+    background-image: linear-gradient(100deg, var(--primary), var(--brand-secondary) 60%, var(--brand-accent));
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
@@ -187,7 +192,9 @@
 .md-body ul, .md-body ol { margin: 0 0 0.9rem 1.25rem; }
 .md-body ul { list-style: disc; }
 .md-body ol { list-style: decimal; }
-.md-body li { margin: 0.2rem 0; }
+.md-body li { margin: 0.35rem 0; }
+.md-body li > code:first-child { display: inline-block; margin-bottom: 0.15rem; }
+.md-body ul ul, .md-body ol ol { margin-top: 0.3rem; }
 .md-body a { color: var(--primary); text-decoration: underline; }
 .md-body strong { font-weight: 600; }
 .md-body code { font-family: var(--font-mono), monospace; font-size: 0.85em; background: var(--muted); padding: 0.1rem 0.35rem; border-radius: 0.35rem; }
@@ -207,3 +214,29 @@
 .md-dark th { background: rgba(255, 255, 255, 0.07); }
 .md-dark th, .md-dark td { border-color: rgba(255, 255, 255, 0.14); }
 .md-dark blockquote { border-left-color: rgba(255, 255, 255, 0.2); color: #b9c4dc; }
+
+/* ---- RoboVibe processing / success animations ---- */
+@keyframes robovibe-bar {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(420%); }
+}
+.robovibe-bar { animation: robovibe-bar 1.1s ease-in-out infinite; }
+
+@keyframes robovibe-pop {
+  0% { transform: scale(0.3); opacity: 0; }
+  60% { transform: scale(1.18); }
+  100% { transform: scale(1); opacity: 1; }
+}
+.robovibe-pop { animation: robovibe-pop 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.4) both; }
+
+@keyframes robovibe-ping-once {
+  0% { transform: scale(0.6); opacity: 0.6; }
+  100% { transform: scale(2.2); opacity: 0; }
+}
+.robovibe-ping-once { animation: robovibe-ping-once 0.65s ease-out 1 both; }
+
+@keyframes robovibe-fade {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.robovibe-fade { animation: robovibe-fade 0.4s ease-out both; }

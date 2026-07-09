@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { StatCard } from "@/components/app/stat-card";
 import { CreateAssignmentDialog } from "@/components/teacher/teacher-buttons";
-import { formatRelative } from "@/lib/utils";
+import { formatRelative, formatDay } from "@/lib/utils";
 import { apiGet } from "@/lib/api/client";
 
 export const metadata = { title: "Assignments" };
@@ -138,7 +138,7 @@ export default async function TeacherAssignmentsPage() {
                         {a.dueAt && (
                           <div className="flex shrink-0 items-center gap-1 rounded-lg border border-border px-2.5 py-1 text-xs text-muted-foreground">
                             <CalendarDays className="size-3.5" />
-                            Due {new Date(a.dueAt).toLocaleDateString()}
+                            Due {formatDay(a.dueAt)}
                           </div>
                         )}
                       </div>

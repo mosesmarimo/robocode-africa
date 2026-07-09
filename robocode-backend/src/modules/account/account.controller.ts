@@ -1,9 +1,14 @@
-import { Body, Controller, Get, Put } from "@nestjs/common";
+import { Body, Controller, Get, Post, Put } from "@nestjs/common";
 import { AccountService } from "./account.service";
 import { ZodPipe } from "../../common/zod.pipe";
 import { RequireActive, CurrentUser } from "../../auth/decorators";
 import type { AuthUser } from "../../auth/auth-user.type";
-import { updateProfileSchema, type UpdateProfileInput } from "./dto";
+import {
+  updateProfileSchema,
+  type UpdateProfileInput,
+  changePasswordSchema,
+  type ChangePasswordInput,
+} from "./dto";
 
 @Controller("account")
 export class AccountController {
@@ -31,5 +36,15 @@ export class AccountController {
     @Body(new ZodPipe(updateProfileSchema)) body: UpdateProfileInput,
   ) {
     return this.account.updateProfile(user, body);
+  }
+
+  /** Self-service password change. Revokes other sessions; returns a fresh token. */
+  @RequireActive()
+  @Post("change-password")
+  changePassword(
+    @CurrentUser() user: AuthUser,
+    @Body(new ZodPipe(changePasswordSchema)) body: ChangePasswordInput,
+  ) {
+    return this.account.changePassword(user, body);
   }
 }

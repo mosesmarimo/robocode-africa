@@ -1,7 +1,13 @@
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, Prisma } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { nanoid } from "nanoid";
 import { readFileSync } from "node:fs";
+import { introRobotics, codingArduino, aiFoundations, LANG_MODULES, ROBOTICS_MODULES, AI_MODULES, TUTORIAL_MODULES } from "./content";
+import { type Block } from "./content/types";
+import { mergeBakedDiagrams } from "./baked-diagrams";
+import { syncLearningTracks } from "./content/sync-tracks";
+import { ALL_LANGUAGES } from "../src/domain/constants";
+import { ROBOTICS_TEMPLATES, blinkDiagram, BLINK_CODE } from "./robotics-templates";
 
 const prisma = new PrismaClient();
 const PW = bcrypt.hashSync("password123", 10);
@@ -52,205 +58,22 @@ async function aiDescribe(title: string, board: string, diagram: any, code: stri
 
 type AnyJson = Record<string, unknown>;
 
-// ---- tidy right-angle wire routing for the demo projects ----
-const PIN_XY: Record<string, Record<string, [number, number]>> = {
-  "__board__:arduino-uno": {
-    "13": [125, 9], "12": [135, 9], "11": [144, 9], "10": [154, 9], "9": [163, 9], "8": [173, 9],
-    "7": [189, 9], "6": [199, 9], "5": [208, 9], "4": [218, 9], "3": [227, 9], "2": [237, 9],
-    "GND.1": [116, 9], "5V": [160, 192], "3.3V": [150, 192], "GND.2": [170, 192], "GND.3": [179, 192],
-    "A0": [208, 192], "A1": [218, 192], "A2": [227, 192], "A3": [237, 192], "A4": [246, 192], "A5": [256, 192],
-  },
-  "__board__:esp32": {
-    D13: [5, 140], D12: [5, 130], D14: [5, 120], D27: [5, 111], D26: [5, 101], D25: [5, 91],
-    "GND.2": [5, 149], VIN: [5, 159], "3V3": [101, 159], "GND.1": [101, 149], D15: [101, 140],
-    D2: [101, 130], D4: [101, 120], D5: [101, 91], D18: [101, 82], D19: [101, 72], D21: [101, 63], D22: [101, 34], D23: [101, 24],
-  },
-  led: { A: [25, 42], C: [15, 42] },
-  resistor: { "1": [0, 6], "2": [59, 6] },
-  ultrasonic: { VCC: [71, 95], TRIG: [81, 95], ECHO: [91, 95], GND: [101, 95] },
-  buzzer: { "1": [27, 84], "2": [37, 84] },
-  lcd1602: { GND: [4, 32], VCC: [4, 42], SDA: [4, 51], SCL: [4, 61] },
-  neopixel: { VDD: [1, 4], DOUT: [1, 14], VSS: [21, 14], DIN: [21, 4] },
-};
-const SNAP8 = (v: number) => Math.round(v / 8) * 8;
-function pinXY(d: AnyJson, ref: string): { x: number; y: number } | null {
-  const [id, pin] = ref.split(":");
-  const part = (d.parts as AnyJson[]).find((p) => p.id === id) as AnyJson | undefined;
-  if (!part) return null;
-  const c = PIN_XY[part.type as string]?.[pin];
-  if (!c) return null;
-  return { x: (part.x as number) + c[0], y: (part.y as number) + c[1] };
-}
-/** Adds right-angle (H-V-H) bend points to every wire, with the vertical run kept off the board. */
+// Demo wires use the Studio's automatic orthogonal "bus" routing (no baked bend
+// points), so every wire connects cleanly to the real component pins and the
+// connected pins are colour-matched to their wire.
 function routed(d: AnyJson): AnyJson {
-  const mcu = (d.parts as AnyJson[]).find((p) => p.id === "mcu") as AnyJson | undefined;
-  const boardRight = mcu ? (mcu.x as number) + (String(mcu.type).includes("esp32") ? 124 : 320) : 0;
-  for (const w of d.wires as AnyJson[]) {
-    const a = pinXY(d, w.from as string);
-    const b = pinXY(d, w.to as string);
-    if (!a || !b) continue;
-    const involvesBoard = (w.from as string).startsWith("mcu:") || (w.to as string).startsWith("mcu:");
-    let midX = (a.x + b.x) / 2;
-    if (involvesBoard) midX = Math.max(midX, boardRight + 24);
-    midX = SNAP8(midX);
-    w.points = [{ x: midX, y: SNAP8(a.y) }, { x: midX, y: SNAP8(b.y) }];
-  }
+  for (const w of d.wires as AnyJson[]) delete w.points;
   return d;
 }
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-// ---- import Wokwi example projects (faithful diagrams from wokwi.com) ----
-const WK_TAG: Record<string, string> = {
-  "wokwi-arduino-uno": "__board__:arduino-uno",
-  "wokwi-esp32-devkit-v1": "__board__:esp32",
-  "wokwi-7segment": "7segment", "wokwi-buzzer": "buzzer", "wokwi-pushbutton": "pushbutton",
-  "wokwi-ds1307": "ds1307", "wokwi-membrane-keypad": "keypad", "wokwi-servo": "servo",
-  "wokwi-lcd1602": "lcd1602", "wokwi-resistor": "resistor", "wokwi-led": "led",
-};
-const WK_COLOR: Record<string, string> = {
-  black: "#1f2937", red: "#ef4444", green: "#16a34a", blue: "#2563ff", gold: "#f59e0b",
-  orange: "#f97316", purple: "#a855f7", gray: "#64748b", grey: "#64748b", cyan: "#06b6d4",
-  brown: "#92400e", pink: "#ec4899", white: "#e5e7eb", yellow: "#eab308",
-};
-function fromWokwi(wk: any): any {
-  const board = wk.parts.find((p: any) => String(p.type).includes("arduino") || String(p.type).includes("esp32"));
-  const oldBoardId = board?.id;
-  const boardCatalog = WK_TAG[board?.type] ?? "__board__:arduino-uno";
-  const boardId = boardCatalog.split(":")[1];
-  const parts: any[] = [];
-  for (const p of wk.parts) {
-    if (p.id === oldBoardId) { parts.push({ id: "mcu", type: boardCatalog, x: p.left ?? 0, y: p.top ?? 0, rotation: p.rotate ?? 0 }); continue; }
-    const cat = WK_TAG[p.type];
-    if (!cat) continue;
-    parts.push({ id: p.id, type: cat, x: p.left ?? 0, y: p.top ?? 0, rotation: p.rotate ?? 0, props: p.attrs ?? undefined });
-  }
-  const ids = new Set(parts.map((p) => p.id));
-  const remap = (ref: string) => (ref.startsWith(oldBoardId + ":") ? "mcu:" + ref.slice(oldBoardId.length + 1) : ref);
-  const wires: any[] = [];
-  let i = 0;
-  for (const c of wk.connections) {
-    const from = remap(c[0]);
-    const to = remap(c[1]);
-    if (!ids.has(from.split(":")[0]) || !ids.has(to.split(":")[0])) continue;
-    wires.push({ id: "w" + i++, from, to, color: WK_COLOR[c[2]] ?? "#64748b" });
-  }
-  return { board: boardId, parts, wires };
-}
+// Baked AI wiring diagrams: mergeBakedDiagrams is shared with seed-content.ts
+// (the non-destructive prod content seeder). See ./baked-diagrams.ts.
 
-const WK_CLOCK = {
-  parts: [
-    { type: "wokwi-7segment", id: "7segment", top: -29, left: 330, rotate: 0, attrs: { commonPin: "anode", digits: "4", colon: "1" } },
-    { type: "wokwi-buzzer", id: "buzzer1", top: 190, left: 466, rotate: 90, attrs: {} },
-    { type: "wokwi-pushbutton", id: "pushbutton1", top: 110, left: 300, attrs: { label: "Hours", color: "green" } },
-    { type: "wokwi-pushbutton", id: "pushbutton2", top: 110, left: 380, attrs: { label: "Minutes", color: "green" } },
-    { type: "wokwi-pushbutton", id: "pushbutton3", top: 110, left: 460, attrs: { label: "Alarm" } },
-    { type: "wokwi-ds1307", id: "ds1307", top: 235, left: 283, attrs: {} },
-    { type: "wokwi-arduino-uno", id: "arduino", top: 0, left: 0, attrs: {} },
-  ],
-  connections: [
-    ["7segment:DIG1", "arduino:2", "gold", []], ["7segment:DIG2", "arduino:3", "green", []],
-    ["7segment:DIG3", "arduino:4", "orange", []], ["7segment:DIG4", "arduino:5", "purple", []],
-    ["7segment:A", "arduino:6", "gray", []], ["7segment:B", "arduino:7", "purple", []],
-    ["7segment:C", "arduino:8", "blue", []], ["7segment:D", "arduino:9", "cyan", []],
-    ["7segment:E", "arduino:10", "green", []], ["7segment:F", "arduino:11", "brown", []],
-    ["7segment:G", "arduino:12", "orange", []], ["7segment:CLN", "arduino:13", "cyan", []],
-    ["7segment:COM", "arduino:5V", "red", []], ["buzzer1:1", "arduino:GND.2", "black", []],
-    ["buzzer1:2", "arduino:A3", "orange", []], ["pushbutton1:1.l", "arduino:A0", "green", []],
-    ["pushbutton1:2.l", "arduino:GND.2", "black", []], ["pushbutton2:1.l", "arduino:A1", "gray", []],
-    ["pushbutton2:2.l", "arduino:GND.2", "black", []], ["pushbutton3:1.l", "arduino:A2", "purple", []],
-    ["pushbutton3:2.l", "arduino:GND.2", "black", []], ["ds1307:GND", "arduino:GND.2", "black", []],
-    ["ds1307:5V", "arduino:5V", "red", []], ["ds1307:SDA", "arduino:A4", "blue", []],
-    ["ds1307:SCL", "arduino:A5", "gold", []],
-  ],
-};
-
-const WK_KEYPAD = {
-  parts: [
-    { id: "uno", type: "wokwi-arduino-uno", top: 200, left: 20 },
-    { id: "keypad", type: "wokwi-membrane-keypad", left: 360, top: 140 },
-    { id: "servo", type: "wokwi-servo", left: 400, top: 20, attrs: { hornColor: "black" } },
-    { id: "lcd", type: "wokwi-lcd1602", top: 8, left: 20 },
-    { id: "r1", type: "wokwi-resistor", top: 140, left: 220, attrs: { value: "220" } },
-  ],
-  connections: [
-    ["uno:GND.1", "lcd:VSS", "black", []], ["uno:GND.1", "lcd:K", "black", []], ["uno:GND.1", "lcd:RW", "black", []],
-    ["uno:5V", "lcd:VDD", "red", []], ["uno:5V", "r1:2", "red", []], ["r1:1", "lcd:A", "pink", []],
-    ["uno:12", "lcd:RS", "blue", []], ["uno:11", "lcd:E", "purple", []], ["uno:10", "lcd:D4", "green", []],
-    ["uno:9", "lcd:D5", "brown", []], ["uno:8", "lcd:D6", "gold", []], ["uno:7", "lcd:D7", "gray", []],
-    ["uno:6", "servo:PWM", "orange", []], ["uno:5V", "servo:V+", "red", []], ["uno:GND.1", "servo:GND", "black", []],
-    ["uno:A3", "keypad:C1", "brown", []], ["uno:A2", "keypad:C2", "gray", []], ["uno:A1", "keypad:C3", "orange", []],
-    ["uno:A0", "keypad:C4", "pink", []], ["uno:5", "keypad:R1", "blue", []], ["uno:4", "keypad:R2", "green", []],
-    ["uno:3", "keypad:R3", "purple", []], ["uno:2", "keypad:R4", "gold", []],
-  ],
-};
-
-const CLOCK_CODE = `// RoboCode.Africa — 7-segment digital clock
-// Demo sketch: press a button to sound the buzzer.
-int buttons[] = {A0, A1, A2};
-int notes[] = {262, 330, 392};
-const int BUZZER = A3;
-
-void setup() {
-  for (int i = 0; i < 3; i++) pinMode(buttons[i], INPUT_PULLUP);
-  pinMode(BUZZER, OUTPUT);
-  Serial.begin(9600);
-  Serial.println("Clock ready — press Hours / Minutes / Alarm");
-}
-
-void loop() {
-  bool pressed = false;
-  for (int i = 0; i < 3; i++) {
-    if (digitalRead(buttons[i]) == LOW) {
-      tone(BUZZER, notes[i]);
-      Serial.print("Button ");
-      Serial.println(i + 1);
-      pressed = true;
-    }
-  }
-  if (!pressed) noTone(BUZZER);
-  delay(60);
-}`;
-
-const KEYPAD_CODE = `// RoboCode.Africa — keypad + servo door lock
-// Demo sketch: LCD status + servo "lock/unlock".
-#include <LiquidCrystal.h>
-#include <Servo.h>
-
-LiquidCrystal lcd(12, 11, 10, 9, 8, 7);
-Servo lock;
-bool open = false;
-
-void setup() {
-  lcd.begin(16, 2);
-  lock.attach(6);
-  lcd.print("RoboCode Lock");
-  lock.write(0);
-}
-
-void loop() {
-  open = !open;
-  lcd.setCursor(0, 1);
-  if (open) { lcd.print("Status: OPEN  "); lock.write(90); }
-  else      { lcd.print("Status: LOCKED"); lock.write(0); }
-  delay(1500);
-}`;
-
-function blinkDiagram(): any {
-  return routed({
-    board: "arduino-uno",
-    parts: [
-      { id: "mcu", type: "__board__:arduino-uno", x: 48, y: 160, rotation: 0 },
-      { id: "r1", type: "resistor", x: 456, y: 128, rotation: 0, props: { value: "220" } },
-      { id: "led1", type: "led", x: 616, y: 104, rotation: 0, props: { color: "red" } },
-    ],
-    wires: [
-      { id: "w1", from: "mcu:13", to: "r1:1", color: "#16a34a" },
-      { id: "w2", from: "r1:2", to: "led1:A", color: "#ef4444" },
-      { id: "w3", from: "led1:C", to: "mcu:GND.1", color: "#000000" },
-    ],
-  });
-}
-
+// Wokwi-imported example diagrams (Digital Alarm Clock / Keypad Door Lock), the
+// Blink diagram/code, and the LCD/NeoPixel/ESP32 template diagrams+code all moved
+// to ./robotics-templates.ts (shared with the idempotent prod seeder). Only
+// ultrasonicDiagram/ULTRASONIC_CODE stay here — they back a sample project + a
+// course task below, not a template.
 function ultrasonicDiagram(): any {
   return routed({
     board: "arduino-uno",
@@ -269,115 +92,6 @@ function ultrasonicDiagram(): any {
     ],
   });
 }
-
-function lcdDiagram(): any {
-  return routed({
-    board: "arduino-uno",
-    parts: [
-      { id: "mcu", type: "__board__:arduino-uno", x: 48, y: 224, rotation: 0 },
-      { id: "lcd1", type: "lcd1602", x: 456, y: 72, rotation: 0, props: { pins: "i2c" } },
-    ],
-    wires: [
-      { id: "w1", from: "mcu:5V", to: "lcd1:VCC", color: "#ef4444" },
-      { id: "w2", from: "mcu:GND.1", to: "lcd1:GND", color: "#000000" },
-      { id: "w3", from: "mcu:A4", to: "lcd1:SDA", color: "#2563ff" },
-      { id: "w4", from: "mcu:A5", to: "lcd1:SCL", color: "#f59e0b" },
-    ],
-  });
-}
-
-const LCD_CODE = `#include <Wire.h>
-#include <LiquidCrystal_I2C.h>
-
-LiquidCrystal_I2C lcd(0x27, 16, 2);
-
-void setup() {
-  lcd.init();
-  lcd.backlight();
-  lcd.setCursor(0, 0);
-  lcd.print("RoboCode.Africa");
-  lcd.setCursor(0, 1);
-  lcd.print("Hello, world!");
-}
-
-void loop() {}`;
-
-function neoDiagram(): any {
-  return routed({
-    board: "arduino-uno",
-    parts: [
-      { id: "mcu", type: "__board__:arduino-uno", x: 48, y: 208, rotation: 0 },
-      { id: "np1", type: "neopixel", x: 536, y: 96, rotation: 0 },
-    ],
-    wires: [
-      { id: "w1", from: "mcu:5V", to: "np1:VDD", color: "#ef4444" },
-      { id: "w2", from: "mcu:GND.1", to: "np1:VSS", color: "#000000" },
-      { id: "w3", from: "mcu:6", to: "np1:DIN", color: "#16a34a" },
-    ],
-  });
-}
-
-const NEO_CODE = `#include <Adafruit_NeoPixel.h>
-
-Adafruit_NeoPixel pixel(1, 6, NEO_GRB + NEO_KHZ800);
-
-void setup() {
-  pixel.begin();
-}
-
-void loop() {
-  pixel.setPixelColor(0, pixel.Color(255, 0, 0));
-  pixel.show();
-  delay(400);
-  pixel.setPixelColor(0, pixel.Color(0, 255, 0));
-  pixel.show();
-  delay(400);
-  pixel.setPixelColor(0, pixel.Color(0, 0, 255));
-  pixel.show();
-  delay(400);
-}`;
-
-function esp32Diagram(): any {
-  return routed({
-    board: "esp32",
-    parts: [
-      { id: "mcu", type: "__board__:esp32", x: 48, y: 120, rotation: 0 },
-      { id: "r1", type: "resistor", x: 440, y: 96, rotation: 0, props: { value: "220" } },
-      { id: "led1", type: "led", x: 600, y: 72, rotation: 0, props: { color: "green" } },
-    ],
-    wires: [
-      { id: "w1", from: "mcu:D2", to: "r1:1", color: "#16a34a" },
-      { id: "w2", from: "r1:2", to: "led1:A", color: "#ef4444" },
-      { id: "w3", from: "led1:C", to: "mcu:GND.1", color: "#000000" },
-    ],
-  });
-}
-
-const ESP32_LED_CODE = `// ESP32 — blink an external LED on GPIO 2
-void setup() {
-  pinMode(2, OUTPUT);
-  Serial.begin(115200);
-  Serial.println("ESP32 ready!");
-}
-
-void loop() {
-  digitalWrite(2, HIGH);
-  delay(400);
-  digitalWrite(2, LOW);
-  delay(400);
-}`;
-
-const BLINK_CODE = `void setup() {
-  pinMode(13, OUTPUT);
-  Serial.begin(9600);
-  Serial.println("Blink ready");
-}
-void loop() {
-  digitalWrite(13, HIGH);
-  delay(400);
-  digitalWrite(13, LOW);
-  delay(400);
-}`;
 
 const ULTRASONIC_CODE = `const int TRIG = 9, ECHO = 10, BUZZER = 8;
 void setup() {
@@ -403,12 +117,11 @@ async function reset() {
     "projectVersion", "simulationRun", "codeFile", "project", "boardDefinition",
     "approvalRequest", "consentRecord", "user", "domain", "subscription", "plan", "tenant",
   ] as const;
-  await prisma.$executeRawUnsafe("PRAGMA foreign_keys = OFF;");
+  // Child-first delete order (above) keeps FK constraints satisfied on Postgres.
   for (const t of tables) {
     // @ts-expect-error dynamic delegate access
     await prisma[t].deleteMany({});
   }
-  await prisma.$executeRawUnsafe("PRAGMA foreign_keys = ON;");
 }
 
 async function main() {
@@ -501,6 +214,15 @@ async function main() {
   }
 
   // Badges
+  // Frozen 12 gamification languages (10 coding + 2 robotics) — imported
+  // straight from src/domain/constants.ts ALL_LANGUAGES (the single source of
+  // truth) rather than hand-duplicated here.
+  const GAMIFICATION_LANGUAGES: readonly string[] = ALL_LANGUAGES;
+  const LANGUAGE_BADGE_TIERS: { suffix: string; label: string }[] = [
+    { suffix: "novice", label: "Novice" },
+    { suffix: "adept", label: "Adept" },
+    { suffix: "master", label: "Master" },
+  ];
   const badges = [
     { code: "first-steps", name: "First Steps", description: "Created your first project.", icon: "sparkles" },
     { code: "blink-master", name: "Blink Master", description: "Ran your first simulation.", icon: "lightbulb" },
@@ -510,6 +232,22 @@ async function main() {
     { code: "ai-explorer", name: "AI Explorer", description: "Completed an AI lesson.", icon: "brain" },
     { code: "streak-7", name: "7-Day Streak", description: "Built 7 days in a row.", icon: "flame" },
     { code: "competitor", name: "Competitor", description: "Entered a competition.", icon: "trophy" },
+    // Referral program (viral growth loop) — recruiter badges by rewarded-referral count.
+    { code: "recruiter_bronze", name: "Bronze Recruiter", description: "Referred 1 friend who joined RoboCode.", icon: "user-plus" },
+    { code: "recruiter_silver", name: "Silver Recruiter", description: "Referred 5 friends who joined RoboCode.", icon: "users" },
+    { code: "recruiter_gold", name: "Gold Recruiter", description: "Referred 25 friends who joined RoboCode.", icon: "crown" },
+    // Gamification funnel (GamificationService.completeTask) — generic badges.
+    { code: "first_run", name: "First Run", description: "Ran your first try-it example.", icon: "play" },
+    { code: "ten_exercises", name: "Ten Exercises", description: "Completed 10 practice exercises.", icon: "check-circle" },
+    // Gamification funnel — per-language XP-threshold badges (novice/adept/master).
+    ...GAMIFICATION_LANGUAGES.flatMap((lang) =>
+      LANGUAGE_BADGE_TIERS.map((tier) => ({
+        code: `${lang}_${tier.suffix}`,
+        name: `${lang[0].toUpperCase()}${lang.slice(1)} ${tier.label}`,
+        description: `Earned ${tier.label.toLowerCase()}-level XP in ${lang}.`,
+        icon: "award",
+      })),
+    ),
   ];
   for (const b of badges) await prisma.badge.create({ data: b });
   async function award(userId: string, code: string) {
@@ -527,8 +265,13 @@ async function main() {
   // Courses + lessons + tasks
   async function course(data: AnyJson, lessons: AnyJson[], tasks: AnyJson[]) {
     const c = await prisma.course.create({ data: data as never });
+    const courseSlug = String((data as { slug?: string }).slug ?? "");
     for (let i = 0; i < lessons.length; i++) {
-      await prisma.lesson.create({ data: { ...(lessons[i] as object), courseId: c.id, order: i } as never });
+      const lesson = lessons[i] as { slug?: string; body?: { blocks?: Block[] } };
+      const lessonSlug = String(lesson.slug ?? "");
+      const blocks = lesson.body?.blocks ?? [];
+      const mergedBody = { ...(lesson.body ?? { blocks: [] }), blocks: mergeBakedDiagrams(courseSlug, lessonSlug, blocks) };
+      await prisma.lesson.create({ data: { ...(lesson as object), body: mergedBody, courseId: c.id, order: i } as never });
     }
     for (const t of tasks) {
       await prisma.task.create({ data: { ...(t as object), courseId: c.id } as never });
@@ -536,15 +279,12 @@ async function main() {
     return c;
   }
 
-  const lessonBody = (md: string) => ({ blocks: [{ type: "markdown", text: md }] });
-
+  // --- Demo courses: meta + lessons come from content modules; tasks stay here
+  //     because they reference BLINK_CODE/blinkDiagram() (imported above) and
+  //     ULTRASONIC_CODE/ultrasonicDiagram() (defined above).
   const robotics = await course(
-    { title: "Intro to Robotics", slug: "intro-robotics", track: "robotics", level: "primary", description: "Meet the Arduino, light an LED, and read your first sensor.", coverImage: "/covers/robotics.svg", order: 1 },
-    [
-      { title: "What is a microcontroller?", slug: "what-is-mcu", contentType: "markdown", body: lessonBody("# Meet the Arduino\nAn Arduino is a tiny computer you can program to control lights, motors and sensors."), estMinutes: 8 },
-      { title: "Your first LED", slug: "first-led", contentType: "markdown", body: lessonBody("# Light it up\nConnect an LED through a resistor and blink it with code."), estMinutes: 12 },
-      { title: "Reading a sensor", slug: "reading-sensor", contentType: "markdown", body: lessonBody("# Sensing the world\nUse an ultrasonic sensor to measure distance."), estMinutes: 15 },
-    ],
+    introRobotics.meta as AnyJson,
+    introRobotics.lessons as AnyJson[],
     [
       { title: "Blink an LED", slug: "blink-led", description: "Make the on-board LED blink once per second.", track: "robotics", difficulty: "beginner", points: 50, boardType: "arduino-uno", starterCode: BLINK_CODE, starterDiagram: blinkDiagram(), checks: { rules: [{ type: "pin_toggles", pin: 13 }, { type: "serial_contains", value: "ready" }] } },
       { title: "Distance alarm", slug: "distance-alarm", description: "Sound the buzzer when an object is closer than 15 cm.", track: "robotics", difficulty: "intermediate", points: 100, boardType: "arduino-uno", starterCode: ULTRASONIC_CODE, starterDiagram: ultrasonicDiagram(), checks: { rules: [{ type: "serial_contains", value: "Distance" }] } },
@@ -552,26 +292,44 @@ async function main() {
   );
 
   await course(
-    { title: "Coding with Arduino", slug: "coding-arduino", track: "coding", level: "high", description: "Variables, loops and functions — applied to real hardware.", coverImage: "/covers/coding.svg", order: 2 },
-    [
-      { title: "Variables & types", slug: "variables", contentType: "markdown", body: lessonBody("# Storing values\nVariables hold numbers, text and more."), estMinutes: 10 },
-      { title: "Loops", slug: "loops", contentType: "markdown", body: lessonBody("# Repeating yourself\nUse for and while loops to repeat actions."), estMinutes: 12 },
-    ],
+    codingArduino.meta as AnyJson,
+    codingArduino.lessons as AnyJson[],
     [
       { title: "Countdown timer", slug: "countdown", description: "Print a countdown from 10 to 0 on the serial monitor.", track: "coding", difficulty: "beginner", points: 50, boardType: "arduino-uno", checks: { rules: [{ type: "serial_contains", value: "0" }] } },
     ],
   );
 
   await course(
-    { title: "AI Foundations", slug: "ai-foundations", track: "ai", level: "high", description: "How machines learn — patterns, data and smart sensors.", coverImage: "/covers/ai.svg", order: 3 },
-    [
-      { title: "What is AI?", slug: "what-is-ai", contentType: "markdown", body: lessonBody("# Teaching machines\nAI helps computers find patterns in data."), estMinutes: 10 },
-      { title: "Smart thresholds", slug: "smart-thresholds", contentType: "markdown", body: lessonBody("# Decisions from data\nUse sensor data to make smart decisions."), estMinutes: 12 },
-    ],
+    aiFoundations.meta as AnyJson,
+    aiFoundations.lessons as AnyJson[],
     [
       { title: "Gesture light", slug: "gesture-light", description: "Turn an LED on when a sensor detects something near.", track: "ai", difficulty: "intermediate", points: 100, boardType: "arduino-uno", checks: { rules: [{ type: "pin_toggles", pin: 13 }] } },
     ],
   );
+
+  // Language tutorial courses (added by Tasks 11-22; no-op while LANG_MODULES is empty)
+  for (const m of LANG_MODULES) {
+    await course(m.meta as AnyJson, m.lessons as AnyJson[], (m.tasks ?? []) as AnyJson[]);
+  }
+
+  // Robotics deep-dive courses (ESP32, Sensors, Pico, Raspberry Pi, integration)
+  for (const m of ROBOTICS_MODULES) {
+    await course(m.meta as AnyJson, m.lessons as AnyJson[], (m.tasks ?? []) as AnyJson[]);
+  }
+
+  // AI deep-dive courses (Know Your Models, AI Appreciation for Junior School)
+  for (const m of AI_MODULES) {
+    await course(m.meta as AnyJson, m.lessons as AnyJson[], (m.tasks ?? []) as AnyJson[]);
+  }
+
+  // W3Schools-style language tutorial courses (Python, JS, TS, SQL, HTML, CSS, Go, Rust, C/C++, C#, Arduino, MicroPython)
+  for (const m of TUTORIAL_MODULES) {
+    await course(m.meta as AnyJson, m.lessons as AnyJson[], (m.tasks ?? []) as AnyJson[]);
+  }
+
+  // Curated Learning Tracks — run after all courses/tasks above so every item
+  // slug in prisma/content/tracks.ts resolves.
+  await syncLearningTracks(prisma);
 
   // Enrollments + progress
   for (const u of [tariro, kuda, chipo, farai, ada]) {
@@ -589,37 +347,28 @@ async function main() {
   });
   await prisma.codeFile.create({ data: { projectId: proj2.id, authorId: tariro.id, filename: "sketch.ino", language: "arduino", content: ULTRASONIC_CODE } });
 
-  // A public template
-  const tmpl = await prisma.project.create({
-    data: { ownerId: teacher.id, tenantId: springfield.id, title: "Starter: Blink", description: await aiDescribe("Starter: Blink", "arduino-uno", blinkDiagram(), BLINK_CODE, "The classic starting point — make an LED blink on and off with a few lines of code."), boardType: "arduino-uno", diagram: blinkDiagram(), visibility: "public", isTemplate: true },
-  });
-  await prisma.codeFile.create({ data: { projectId: tmpl.id, filename: "sketch.ino", language: "arduino", content: BLINK_CODE } });
-
-  const lcdTmpl = await prisma.project.create({
-    data: { ownerId: teacher.id, tenantId: springfield.id, title: "LCD Hello World", description: await aiDescribe("LCD Hello World", "arduino-uno", lcdDiagram(), LCD_CODE, "Display your own text messages on a 16x2 LCD screen wired over I2C."), boardType: "arduino-uno", diagram: lcdDiagram(), visibility: "public", isTemplate: true },
-  });
-  await prisma.codeFile.create({ data: { projectId: lcdTmpl.id, filename: "sketch.ino", language: "arduino", content: LCD_CODE } });
-
-  const neoTmpl = await prisma.project.create({
-    data: { ownerId: teacher.id, tenantId: springfield.id, title: "NeoPixel Rainbow", description: await aiDescribe("NeoPixel Rainbow", "arduino-uno", neoDiagram(), NEO_CODE, "Light up an addressable RGB NeoPixel and cycle it through a rainbow of colours."), boardType: "arduino-uno", diagram: neoDiagram(), visibility: "public", isTemplate: true },
-  });
-  await prisma.codeFile.create({ data: { projectId: neoTmpl.id, filename: "sketch.ino", language: "arduino", content: NEO_CODE } });
-
-  const espTmpl = await prisma.project.create({
-    data: { ownerId: teacher.id, tenantId: springfield.id, title: "ESP32 Blink", description: await aiDescribe("ESP32 Blink", "esp32", esp32Diagram(), ESP32_LED_CODE, "Blink an external LED on the Wi-Fi-capable ESP32 board using GPIO 2."), boardType: "esp32", diagram: esp32Diagram(), visibility: "public", isTemplate: true },
-  });
-  await prisma.codeFile.create({ data: { projectId: espTmpl.id, filename: "sketch.ino", language: "arduino", content: ESP32_LED_CODE } });
-
-  // Example projects
-  const wkClock = await prisma.project.create({
-    data: { ownerId: teacher.id, tenantId: springfield.id, title: "Digital Alarm Clock", description: await aiDescribe("Digital Alarm Clock", "arduino-uno", fromWokwi(WK_CLOCK), CLOCK_CODE, "A 4-digit 7-segment clock with a DS1307 real-time clock module, three buttons (Hours, Minutes, Alarm) and a buzzer alarm."), boardType: "arduino-uno", diagram: fromWokwi(WK_CLOCK), visibility: "public", isTemplate: true },
-  });
-  await prisma.codeFile.create({ data: { projectId: wkClock.id, filename: "sketch.ino", language: "arduino", content: CLOCK_CODE } });
-
-  const wkKeypad = await prisma.project.create({
-    data: { ownerId: teacher.id, tenantId: springfield.id, title: "Keypad Door Lock", description: await aiDescribe("Keypad Door Lock", "arduino-uno", fromWokwi(WK_KEYPAD), KEYPAD_CODE, "A door lock that reads a code on a 4x4 keypad, shows status on a 16x2 LCD, and turns a servo to lock or unlock."), boardType: "arduino-uno", diagram: fromWokwi(WK_KEYPAD), visibility: "public", isTemplate: true },
-  });
-  await prisma.codeFile.create({ data: { projectId: wkKeypad.id, filename: "sketch.ino", language: "arduino", content: KEYPAD_CODE } });
+  // Robotics starter templates — 5 per board (Arduino UNO, ESP32, Raspberry Pi
+  // Pico). Definitions (title/description/diagram/code) are shared with the
+  // idempotent prod seeder — see ./robotics-templates.ts — so there is exactly
+  // one place that owns each template's content. Static descriptions (no
+  // aiDescribe round-trip) so this stays fast and deterministic for 15 templates.
+  for (const t of ROBOTICS_TEMPLATES) {
+    const p = await prisma.project.create({
+      data: {
+        ownerId: teacher.id,
+        tenantId: springfield.id,
+        title: t.title,
+        description: t.description,
+        boardType: t.boardType,
+        diagram: t.diagram as Prisma.InputJsonValue,
+        visibility: "public",
+        isTemplate: true,
+      },
+    });
+    await prisma.codeFile.createMany({
+      data: t.files.map((f) => ({ projectId: p.id, filename: f.name, language: f.language, content: f.content })),
+    });
+  }
 
   // Teams
   const teamA = await prisma.team.create({

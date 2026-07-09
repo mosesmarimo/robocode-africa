@@ -1,13 +1,18 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service";
 import { NotifyService } from "../../common/notify.service";
+import { hashPassword, generateTempPassword, tempPasswordExpiry } from "../../auth/password.util";
 import type { AuthUser } from "../../auth/auth-user.type";
+import { ReferralsService } from "../referrals/referrals.service";
+import { PublishService } from "../publish/publish.service";
 
 @Injectable()
 export class AdminService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifier: NotifyService,
+    private readonly referrals: ReferralsService,
+    private readonly publish: PublishService,
   ) {}
 
   // =========================================================================
@@ -39,13 +44,22 @@ export class AdminService {
     const [courses, tasks, totalLessons, totalEnrollments, totalSubmissions] = await Promise.all([
       this.prisma.course.findMany({
         orderBy: [{ track: "asc" }, { order: "asc" }],
+        take: 200,
         include: {
           _count: { select: { lessons: true, enrollments: true } },
         },
       }),
+      // Exclude the heavy Json columns (checks/rubric/starterDiagram) and
+      // starterCode from the list view; load those on a task-detail endpoint.
       this.prisma.task.findMany({
         orderBy: { track: "asc" },
-        include: {
+        take: 200,
+        select: {
+          id: true,
+          title: true,
+          track: true,
+          difficulty: true,
+          points: true,
           _count: { select: { submissions: true } },
         },
       }),
@@ -156,7 +170,14 @@ export class AdminService {
 
   /** /app/admin/users — filtered user list (q/role/status) + status KPI counts. */
   async getUsers(filters: { q?: string; role?: string; status?: string }) {
-    const { q, role, status } = filters;
+    const { q } = filters;
+
+    // Validate the enum-like filters: an unrecognised role/status is ignored
+    // rather than silently producing an empty result set.
+    const VALID_ROLES = ["super_admin", "moderator", "school_admin", "teacher", "student", "parent"];
+    const VALID_STATUSES = ["pending", "active", "suspended", "rejected"];
+    const role = filters.role && VALID_ROLES.includes(filters.role) ? filters.role : undefined;
+    const status = filters.status && VALID_STATUSES.includes(filters.status) ? filters.status : undefined;
 
     // When a specific role filter is applied, use it; otherwise exclude platform staff.
     const roleFilter = role ? role : { notIn: ["super_admin", "moderator"] };
@@ -202,10 +223,33 @@ export class AdminService {
   // MUTATIONS — one method per old action function
   // =========================================================================
 
+  /**
+   * COPPA gate: an under-13 student may not be activated until a granted
+   * guardian ConsentRecord exists.
+   */
+  private async assertConsentForActivation(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { birthYear: true },
+    });
+    if (!user || user.birthYear == null) return; // age unknown — nothing to gate
+    const age = new Date().getFullYear() - user.birthYear;
+    if (age >= 13) return;
+    const consent = await this.prisma.consentRecord.findUnique({ where: { userId } });
+    if (consent?.status !== "granted") {
+      throw new BadRequestException({
+        message:
+          "This student is under 13 and is awaiting verifiable guardian consent. They can be activated once the guardian has confirmed consent.",
+      });
+    }
+  }
+
   /** Approve a user approval request. */
   async approveUser(actor: AuthUser, userId: string) {
     const approval = await this.prisma.approvalRequest.findUnique({ where: { userId } });
     if (!approval) throw new NotFoundException("No approval request found");
+
+    await this.assertConsentForActivation(userId);
 
     await this.prisma.$transaction([
       this.prisma.user.update({ where: { id: userId }, data: { status: "active" } }),
@@ -223,6 +267,8 @@ export class AdminService {
         },
       }),
     ]);
+
+    await this.referrals.settleIfActive(userId);
 
     await this.notifier.notify({
       userId,
@@ -310,6 +356,10 @@ export class AdminService {
       }),
     ]);
 
+    // Settle a pending referral for each newly activated school admin (rare,
+    // but a school_admin can themselves have signed up via a referral link).
+    await Promise.all(adminIds.map((uid) => this.referrals.settleIfActive(uid)));
+
     // Notify each activated school admin
     await Promise.all(
       adminIds.map((uid) =>
@@ -350,6 +400,43 @@ export class AdminService {
   }
 
   /** Reinstate a user. */
+  /**
+   * Reset any user's password (platform admin). If `newPassword` is omitted a
+   * temporary password is generated and returned once. The password itself is
+   * never put in the notification — the admin relays it out-of-band.
+   */
+  async resetPassword(actor: AuthUser, userId: string, newPassword?: string) {
+    const target = await this.prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
+    if (!target) throw new NotFoundException("NOT_FOUND");
+
+    const generated = !newPassword;
+    const password = newPassword ?? generateTempPassword();
+    await this.prisma.$transaction([
+      this.prisma.user.update({
+        where: { id: userId },
+        data: {
+          passwordHash: await hashPassword(password),
+          // Force a change on next login and revoke every existing session.
+          mustChangePassword: true,
+          tempPasswordExpiresAt: tempPasswordExpiry(),
+          tokenVersion: { increment: 1 },
+        },
+      }),
+      this.prisma.auditLog.create({
+        data: { actorId: actor.id, action: "user.password_reset", targetType: "User", targetId: userId },
+      }),
+    ]);
+
+    await this.notifier.notify({
+      userId,
+      type: "account",
+      title: "Your password was reset",
+      body: "An administrator reset your password. Use the new password you were given to sign in, then change it from Settings.",
+    });
+
+    return { ok: true, ...(generated ? { temporaryPassword: password } : {}) };
+  }
+
   async reinstateUser(actor: AuthUser, userId: string) {
     await this.prisma.$transaction([
       this.prisma.user.update({ where: { id: userId }, data: { status: "active" } }),
@@ -362,6 +449,11 @@ export class AdminService {
         },
       }),
     ]);
+
+    // Safety net: settles a referral that was still pending when this user
+    // was suspended (e.g. the daily cap was hit before suspension). A no-op
+    // in the common case where the referral already settled or never existed.
+    await this.referrals.settleIfActive(userId);
 
     await this.notifier.notify({
       userId,
@@ -434,5 +526,14 @@ export class AdminService {
     ]);
 
     return { ok: true };
+  }
+
+  /**
+   * Takedown a published project (admin/mod) — unpublishes it (clears
+   * subdomain/publishDomain/publishedAt, reverts visibility to private) and
+   * opens a resolved ModerationCase recording who/why, for audit.
+   */
+  async takedownPublish(actor: AuthUser, domain: string, subdomain: string, reason: string) {
+    return this.publish.takedown(domain, subdomain, actor, reason);
   }
 }

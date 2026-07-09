@@ -21,6 +21,7 @@ export function SimOverlay({ part }: { part: DiagramPart }) {
       <div className={chip} onPointerDown={(e) => e.stopPropagation()}>
         <input
           type="range" min={0} max={1023} value={val}
+          aria-label={`${def.name} value`}
           onChange={(e) => { eng.potValues[part.id] = Number(e.target.value); force((x) => x + 1); }}
           className="h-1.5 w-28 cursor-pointer accent-amber-400"
         />
@@ -34,6 +35,7 @@ export function SimOverlay({ part }: { part: DiagramPart }) {
     return (
       <div className={chip} onPointerDown={(e) => e.stopPropagation()}>
         <input type="range" min={0} max={1023} value={val}
+          aria-label={`${def.name} value`}
           onChange={(e) => { eng.analogInputs[part.id] = Number(e.target.value); force((x) => x + 1); }}
           className="h-1.5 w-28 cursor-pointer accent-amber-400" />
         <div className="text-center text-[10px] text-white/70">{def.simRole}: {val}</div>
@@ -46,6 +48,7 @@ export function SimOverlay({ part }: { part: DiagramPart }) {
     return (
       <div className={chip} onPointerDown={(e) => e.stopPropagation()}>
         <input type="range" min={2} max={300} value={val}
+          aria-label="Distance (cm)"
           onChange={(e) => { eng.distances[part.id] = Number(e.target.value); force((x) => x + 1); }}
           className="h-1.5 w-32 cursor-pointer accent-amber-400" />
         <div className="text-center text-[10px] text-white/70">{val} cm</div>

@@ -4,6 +4,7 @@ import * as React from "react";
 import Editor, { type OnMount } from "@monaco-editor/react";
 import { Loader2 } from "lucide-react";
 import { useStudio } from "@/lib/studio/store";
+import { useTheme } from "@/components/theme/theme-provider";
 import { parse, ParseError } from "@/lib/sim/parser";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -20,6 +21,7 @@ export function CodeEditor() {
   const setFileContent = useStudio((s) => s.setFileContent);
   const toDiagram = useStudio((s) => s.toDiagram);
 
+  const { resolved } = useTheme();
   const isDiagram = activeFile === "diagram.json";
   const file = files.find((f) => f.name === activeFile);
   const content = isDiagram ? JSON.stringify(toDiagram(), null, 2) : file?.content ?? "";
@@ -65,7 +67,7 @@ export function CodeEditor() {
     <Editor
       key={activeFile}
       height="100%"
-      theme="vs-dark"
+      theme={resolved === "dark" ? "vs-dark" : "vs"}
       language={language}
       value={content}
       onMount={onMount}

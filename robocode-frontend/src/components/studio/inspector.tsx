@@ -3,7 +3,7 @@
 import * as React from "react";
 import { RotateCw, Trash2, X } from "lucide-react";
 import { useStudio } from "@/lib/studio/store";
-import { COMPONENT_BY_ID } from "@/lib/domain/components";
+import { COMPONENT_BY_ID, DEFAULT_I2C_ADDRESS } from "@/lib/domain/components";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
@@ -25,7 +25,7 @@ export function Inspector() {
     <div className="absolute left-4 top-4 z-20 w-60 rounded-xl border border-white/10 bg-[#0e1426]/95 p-3 text-white shadow-xl backdrop-blur">
       <div className="flex items-center justify-between">
         <p className="text-sm font-semibold">{def.name}</p>
-        <button onClick={() => select(null)} className="grid size-6 place-items-center rounded text-white/50 hover:bg-white/10">
+        <button onClick={() => select(null)} aria-label="Close inspector" className="grid size-6 place-items-center rounded text-white/50 hover:bg-white/10">
           <X className="size-3.5" />
         </button>
       </div>
@@ -50,8 +50,9 @@ export function Inspector() {
         )}
         {def.simRole === "resistor" && (
           <div className="space-y-1">
-            <Label className="text-xs text-white/70">Resistance (Ω)</Label>
+            <Label htmlFor="resistance" className="text-xs text-white/70">Resistance (Ω)</Label>
             <Input
+              id="resistance"
               value={String(part.props?.value ?? "220")}
               onChange={(e) => setProp(part.id, "value", e.target.value)}
               className="h-8 border-white/15 bg-white/5 text-white"
@@ -68,6 +69,20 @@ export function Inspector() {
                   style={{ background: c }} title={c} />
               ))}
             </div>
+          </div>
+        )}
+        {(def.simRole === "lcd" || def.simRole === "oled") && (
+          <div className="space-y-1">
+            <Label htmlFor="i2c-address" className="text-xs text-white/70">I2C Address</Label>
+            <Input
+              id="i2c-address"
+              value={String(
+                part.props?.address ??
+                  `0x${DEFAULT_I2C_ADDRESS[def.simRole as "lcd" | "oled"].toString(16).toUpperCase()}`,
+              )}
+              onChange={(e) => setProp(part.id, "address", e.target.value)}
+              className="h-8 border-white/15 bg-white/5 text-white"
+            />
           </div>
         )}
       </div>

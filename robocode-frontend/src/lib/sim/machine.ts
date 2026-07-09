@@ -1,6 +1,8 @@
 // The RoboCode Virtual Machine runtime state: pins, analog sources, tone, time, serial.
 // The interpreter calls these methods; component drivers read/write pin signals.
 
+import type { BoardProfile } from "@/lib/domain/boards";
+
 export type PinMode = "input" | "output" | "input_pullup";
 
 export class Machine {
@@ -24,6 +26,24 @@ export class Machine {
   // addressable pixel strips (Adafruit_NeoPixel) in creation order
   neopixels: { pixels: { r: number; g: number; b: number }[] }[] = [];
 
+  // board-profile-derived runtime state
+  profile?: BoardProfile;
+  adcMax = 1023;
+  pwmMax = 255;
+  pwmRaw: Record<string, number> = {}; // read-back of true duty (0..255 for analogWrite, 0..LEDC-channel-max for ledcWrite)
+  touch: Record<string, number> = {}; // optional override per pin
+  private warned = new Set<string>();
+  // native ADC full-scale for this profile; analogRead sources always report at
+  // this scale, then get rescaled to the (possibly reconfigured) adcMax.
+  private nativeAdcMax = 1023;
+
+  constructor(profile?: BoardProfile) {
+    this.profile = profile;
+    this.adcMax = (2 ** (profile?.adcBits ?? 10)) - 1;
+    this.nativeAdcMax = this.adcMax;
+    this.pwmMax = profile?.pwmMax ?? 255;
+  }
+
   reset() {
     this.digital = {};
     this.pwm = {};
@@ -34,6 +54,12 @@ export class Machine {
     this.virtualMs = 0;
     this.displays = [];
     this.neopixels = [];
+    this.pwmRaw = {};
+    this.touch = {};
+    this.warned = new Set<string>();
+    this.adcMax = (2 ** (this.profile?.adcBits ?? 10)) - 1;
+    this.nativeAdcMax = this.adcMax;
+    this.pwmMax = this.profile?.pwmMax ?? 255;
   }
 
   pinMode(pin: string, mode: PinMode) {
@@ -46,6 +72,7 @@ export class Machine {
   analogWrite(pin: string, value: number) {
     const v = Math.max(0, Math.min(255, Math.round(value)));
     this.pwm[pin] = v;
+    this.pwmRaw[pin] = v;
     this.digital[pin] = v > 0 ? 1 : 0;
   }
   digitalRead(pin: string): number {
@@ -54,7 +81,10 @@ export class Machine {
     return this.digital[pin] ?? 0;
   }
   analogRead(pin: string): number {
-    if (this.analogSources[pin]) return Math.round(this.analogSources[pin]());
+    if (this.analogSources[pin]) {
+      const raw = Math.max(0, Math.min(this.nativeAdcMax, Math.round(this.analogSources[pin]())));
+      return Math.round((raw * this.adcMax) / this.nativeAdcMax);
+    }
     return 0;
   }
   tone(pin: string, freq: number) {
@@ -89,6 +119,11 @@ export class Machine {
   serialPrintln(s: string) {
     this.serialBuffer += s + "\n";
     this.flushLines(false);
+  }
+  warn(msg: string) {
+    if (this.warned.has(msg)) return;
+    this.warned.add(msg);
+    this.onSerial(`[sim] ${msg}`);
   }
   private flushLines(force: boolean) {
     let idx;

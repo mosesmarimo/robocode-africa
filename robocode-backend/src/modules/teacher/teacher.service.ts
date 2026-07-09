@@ -113,22 +113,45 @@ export class TeacherService {
     return { classes, assignments, tasks, upcomingCount, withTaskCount };
   }
 
-  /** /app/teacher/grading — pending + recently graded submissions for tenant students. */
+  /**
+   * A submission-`user` relation filter describing which students the actor may
+   * grade: tenant-wide for school/platform admins (tenant.manage), but only the
+   * actor's own class members for plain teachers. Filtering by the relation lets
+   * Postgres do the join instead of us shipping a (potentially huge) id array.
+   */
+  private gradableUserFilter(actor: AuthUser) {
+    if (can(actor.role, "tenant.manage")) {
+      return { tenantId: actor.tenantId, role: "student", status: "active" };
+    }
+    return { classMemberships: { some: { class: { teacherId: actor.id } } } };
+  }
+
+  /** True if the actor may grade the given student, via a targeted existence check. */
+  private async canGradeStudent(actor: AuthUser, studentId: string): Promise<boolean> {
+    if (can(actor.role, "tenant.manage")) {
+      const count = await this.prisma.user.count({
+        where: { id: studentId, tenantId: actor.tenantId, role: "student", status: "active" },
+      });
+      return count > 0;
+    }
+    const count = await this.prisma.classMember.count({
+      where: { userId: studentId, class: { teacherId: actor.id } },
+    });
+    return count > 0;
+  }
+
+  /** /app/teacher/grading — pending + recently graded submissions for the actor's students. */
   async getGradingQueue(actor: AuthUser) {
     this.assertTeacher(actor);
 
-    // Get all student IDs in this teacher's tenant
-    const tenantStudents = await this.prisma.user.findMany({
-      where: { tenantId: actor.tenantId, role: "student", status: "active" },
-      select: { id: true },
-    });
-    const studentIds = tenantStudents.map((s) => s.id);
+    const userFilter = this.gradableUserFilter(actor);
 
-    // All submissions pending review (submitted or passed), scoped to tenant students
-    const [pendingSubmissions, gradedSubmissions] = await Promise.all([
+    // All submissions pending review (submitted or passed), scoped via the user
+    // relation rather than a materialized id list.
+    const [pendingSubmissions, gradedSubmissions, studentCount] = await Promise.all([
       this.prisma.submission.findMany({
         where: {
-          userId: { in: studentIds },
+          user: userFilter,
           status: { in: ["submitted", "passed"] },
         },
         include: {
@@ -140,7 +163,7 @@ export class TeacherService {
       }),
       this.prisma.submission.findMany({
         where: {
-          userId: { in: studentIds },
+          user: userFilter,
           status: "graded",
         },
         include: {
@@ -150,9 +173,10 @@ export class TeacherService {
         orderBy: { createdAt: "desc" },
         take: 20,
       }),
+      this.prisma.user.count({ where: userFilter }),
     ]);
 
-    return { pendingSubmissions, gradedSubmissions, studentCount: studentIds.length };
+    return { pendingSubmissions, gradedSubmissions, studentCount };
   }
 
   // =========================================================================
@@ -257,6 +281,11 @@ export class TeacherService {
     });
     if (!submission) throw new NotFoundException("Submission not found.");
     if (submission.user.tenantId !== actor.tenantId) throw new ForbiddenException("Access denied.");
+    // A plain teacher may only grade students in their own classes; admins any
+    // active student in the tenant. Targeted existence check (no full id list).
+    if (!(await this.canGradeStudent(actor, submission.userId))) {
+      throw new ForbiddenException("Access denied.");
+    }
 
     await this.prisma.submission.update({
       where: { id: submissionId },

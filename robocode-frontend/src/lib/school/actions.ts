@@ -66,6 +66,23 @@ export async function reinstateStudent(userId: string) {
 }
 
 // ---------------------------------------------------------------------------
+// Reset a member's password (school admin). Returns a temp password if generated.
+// ---------------------------------------------------------------------------
+
+export async function resetMemberPassword(userId: string, password?: string) {
+  try {
+    const res = await apiPost<{ ok: boolean; temporaryPassword?: string }>(
+      `/school/members/${userId}/reset-password`,
+      password ? { password } : {},
+    );
+    return { ok: true as const, temporaryPassword: res.temporaryPassword };
+  } catch (e) {
+    if (e instanceof ApiError) return { ok: false as const, error: e.message, fieldErrors: e.fieldErrors };
+    throw e;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Branding
 // ---------------------------------------------------------------------------
 

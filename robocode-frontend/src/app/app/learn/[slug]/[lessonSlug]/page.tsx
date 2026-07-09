@@ -13,66 +13,11 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { CompleteLessonButton } from "@/components/learn/lesson-actions";
+import { LessonBody, type LessonBlock } from "@/components/learn/lesson-body";
 
 export const metadata = { title: "Lesson" };
 
-/** Tiny markdown-ish renderer: lines starting with # → heading, blank → spacing, else paragraph */
-function renderBlock(text: string) {
-  const lines = text.split("\n");
-  const elements: React.ReactNode[] = [];
-  let paraLines: string[] = [];
-  let key = 0;
-
-  function flushPara() {
-    if (paraLines.length === 0) return;
-    const content = paraLines.join(" ").trim();
-    if (content) {
-      elements.push(
-        <p key={key++} className="leading-relaxed text-foreground/90">
-          {content}
-        </p>,
-      );
-    }
-    paraLines = [];
-  }
-
-  for (const raw of lines) {
-    const line = raw;
-
-    if (line.startsWith("### ")) {
-      flushPara();
-      elements.push(
-        <h3 key={key++} className="font-display text-lg font-bold mt-5 mb-1">
-          {line.slice(4)}
-        </h3>,
-      );
-    } else if (line.startsWith("## ")) {
-      flushPara();
-      elements.push(
-        <h2 key={key++} className="font-display text-xl font-bold mt-6 mb-2">
-          {line.slice(3)}
-        </h2>,
-      );
-    } else if (line.startsWith("# ")) {
-      flushPara();
-      elements.push(
-        <h1 key={key++} className="font-display text-2xl font-bold mt-6 mb-2">
-          {line.slice(2)}
-        </h1>,
-      );
-    } else if (line.trim() === "") {
-      flushPara();
-      elements.push(<div key={key++} className="h-3" />);
-    } else {
-      paraLines.push(line);
-    }
-  }
-  flushPara();
-
-  return elements;
-}
-
-type BodyBlock = { type: string; text: string };
+type BodyBlock = LessonBlock;
 
 interface LessonNav {
   id: string;
@@ -188,23 +133,7 @@ export default async function LessonPage({
             </Card>
           ) : (
             <Card className="p-6 sm:p-8">
-              <div className="prose-lesson space-y-1">
-                {blocks.map((block, i) => {
-                  if (block.type === "markdown") {
-                    return (
-                      <div key={i} className="space-y-1">
-                        {renderBlock(block.text)}
-                      </div>
-                    );
-                  }
-                  // Fallback for unknown block types
-                  return (
-                    <p key={i} className="text-sm text-muted-foreground">
-                      {block.text}
-                    </p>
-                  );
-                })}
-              </div>
+              <LessonBody blocks={blocks} lessonId={lesson.id} />
             </Card>
           )}
 

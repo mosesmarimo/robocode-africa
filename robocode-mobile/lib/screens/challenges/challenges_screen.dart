@@ -178,7 +178,7 @@ class DifficultyChip extends StatelessWidget {
       default:
         c = RoboTheme.primary;
     }
-    return _MiniChip(icon: Icons.bar_chart_rounded, label: _cap(difficulty), color: c);
+    return MiniChip(icon: Icons.bar_chart_rounded, label: _cap(difficulty), color: c);
   }
 }
 
@@ -187,7 +187,7 @@ class PointsChip extends StatelessWidget {
   const PointsChip({super.key, required this.points});
   @override
   Widget build(BuildContext context) =>
-      _MiniChip(icon: Icons.bolt, label: '$points pts', color: RoboTheme.primary);
+      MiniChip(icon: Icons.bolt, label: '$points pts', color: RoboTheme.primary);
 }
 
 class TrackChip extends StatelessWidget {
@@ -195,33 +195,7 @@ class TrackChip extends StatelessWidget {
   const TrackChip({super.key, required this.track});
   @override
   Widget build(BuildContext context) =>
-      _MiniChip(icon: Icons.route_rounded, label: _cap(track), color: Colors.purple);
-}
-
-class _MiniChip extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final Color color;
-  const _MiniChip({required this.icon, required this.label, required this.color});
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withValues(alpha: 0.20)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 13, color: color),
-          const SizedBox(width: 4),
-          Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: color)),
-        ],
-      ),
-    );
-  }
+      MiniChip(icon: Icons.route_rounded, label: _cap(track), color: Colors.purple);
 }
 
 String _cap(String s) => s.isEmpty ? s : '${s[0].toUpperCase()}${s.substring(1)}';

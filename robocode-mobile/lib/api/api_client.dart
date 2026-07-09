@@ -24,13 +24,22 @@ class ApiClient {
       headers: {'content-type': 'application/json'},
       validateStatus: (s) => s != null && s < 500,
     ));
-    _dio.interceptors.add(InterceptorsWrapper(onRequest: (options, handler) async {
-      final token = await _storage.read(key: _tokenKey);
-      if (token != null && token.isNotEmpty) {
-        options.headers['authorization'] = 'Bearer $token';
-      }
-      handler.next(options);
-    }));
+    _dio.interceptors.add(InterceptorsWrapper(
+      onRequest: (options, handler) async {
+        final token = await _storage.read(key: _tokenKey);
+        if (token != null && token.isNotEmpty) {
+          options.headers['authorization'] = 'Bearer $token';
+        }
+        handler.next(options);
+      },
+      // A 401 anywhere means the session is gone (expired/revoked). Clear the
+      // stored token and let the listener (AuthState) flip to signed-out so the
+      // router redirects to /login instead of every screen showing an error.
+      onResponse: (response, handler) {
+        if (response.statusCode == 401) _handleUnauthorized();
+        handler.next(response);
+      },
+    ));
   }
 
   static final ApiClient instance = ApiClient._();
@@ -39,13 +48,37 @@ class ApiClient {
   final _storage = const FlutterSecureStorage();
   static const _tokenKey = 'rc_session';
 
+  /// Invoked when the backend rejects a request with 401. Wired by [AuthState]
+  /// so an expired/revoked session signs the user out app-wide.
+  void Function()? onUnauthorized;
+
+  bool _handlingUnauthorized = false;
+
+  Future<void> _handleUnauthorized() async {
+    if (_handlingUnauthorized) return;
+    _handlingUnauthorized = true;
+    try {
+      await clearToken();
+      onUnauthorized?.call();
+    } finally {
+      _handlingUnauthorized = false;
+    }
+  }
+
   Future<String?> get token => _storage.read(key: _tokenKey);
   Future<void> setToken(String token) => _storage.write(key: _tokenKey, value: token);
   Future<void> clearToken() => _storage.delete(key: _tokenKey);
 
   T _unwrap<T>(Response res) {
     final code = res.statusCode ?? 500;
-    if (code >= 200 && code < 300) return res.data as T;
+    if (code >= 200 && code < 300) {
+      final d = res.data;
+      if (d is T) return d;
+      // 2xx with an unexpected body (HTML from a proxy, an empty 204, a bare
+      // string/list, etc.). Surface as an ApiException so existing handlers
+      // catch it instead of a raw TypeError escaping the call site.
+      throw ApiException(code, 'Unexpected response from server.');
+    }
     final data = res.data;
     String message = 'Request failed ($code)';
     Map<String, String>? fieldErrors;
@@ -79,6 +112,11 @@ class ApiClient {
 
   Future<T> patch<T>(String path, {Object? body}) async {
     final res = await _dio.patch(path, data: body);
+    return _unwrap<T>(res);
+  }
+
+  Future<T> delete<T>(String path, {Object? body}) async {
+    final res = await _dio.delete(path, data: body);
     return _unwrap<T>(res);
   }
 }

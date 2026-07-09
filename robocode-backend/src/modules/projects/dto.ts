@@ -22,7 +22,8 @@ export type Diagram = z.infer<typeof diagramSchema>;
  * Body for creating a project. Mirrors the old `createProject` action input.
  */
 export const createProjectSchema = z.object({
-  title: z.string(),
+  title: z.string().trim().max(120).optional().default(""),
+  kind: z.enum(["robotics", "coding"]).optional().default("robotics"),
   board: z.string().min(1, "Board is required."),
   diagram: diagramSchema,
   files: z.array(fileInputSchema),
@@ -34,7 +35,8 @@ export type CreateProjectInput = z.infer<typeof createProjectSchema>;
  * (minus `projectId`, which comes from the route param).
  */
 export const saveProjectSchema = z.object({
-  title: z.string(),
+  title: z.string().trim().max(120),
+  kind: z.enum(["robotics", "coding"]).optional(),
   board: z.string().min(1, "Board is required."),
   diagram: diagramSchema,
   files: z.array(fileInputSchema),

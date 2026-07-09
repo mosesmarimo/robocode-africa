@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Param, Post, Put } from "@nestjs/common";
 import { ProjectsService } from "./projects.service";
 import { ZodPipe } from "../../common/zod.pipe";
-import { RequireActive, CurrentUser } from "../../auth/decorators";
+import { RequireActive, CurrentUser, Public } from "../../auth/decorators";
 import type { AuthUser } from "../../auth/auth-user.type";
 import {
   createProjectSchema,
@@ -20,6 +20,12 @@ export class ProjectsController {
   @Get()
   list(@CurrentUser() user: AuthUser) {
     return this.projects.listProjects(user);
+  }
+
+  /** Leaderboard: top AI-ranked projects. (Declared before :id so it isn't shadowed.) */
+  @Get("top")
+  top(@CurrentUser() user: AuthUser) {
+    return this.projects.topProjects(user);
   }
 
   /** Load a project for the Studio (project + codeFiles), enforcing read access. */
@@ -56,5 +62,38 @@ export class ProjectsController {
   @Post(":id/simulation-run")
   simulationRun(@CurrentUser() user: AuthUser, @Param("id") id: string) {
     return this.projects.recordSimulationRun(user, id);
+  }
+
+  /** Create/return a public read-only share link slug (owner or staff in tenant). */
+  @RequireActive()
+  @Post(":id/share")
+  share(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.projects.shareProject(user, id);
+  }
+
+  /** Remix a shared/public project into a new project owned by the caller (rewards + notifies the original author, once per remixer). */
+  @RequireActive()
+  @Post(":id/remix")
+  remix(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.projects.remix(user, id);
+  }
+
+  /** Rank the project with AI (4 dimensions) + award quality points. */
+  @RequireActive()
+  @Post(":id/score")
+  score(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.projects.scoreProject(user, id);
+  }
+}
+
+/** Public, unauthenticated read-only access to shared projects. */
+@Controller("public/projects")
+export class PublicProjectsController {
+  constructor(private readonly projects: ProjectsService) {}
+
+  @Public()
+  @Get(":shareId")
+  shared(@Param("shareId") shareId: string) {
+    return this.projects.getSharedProject(shareId);
   }
 }

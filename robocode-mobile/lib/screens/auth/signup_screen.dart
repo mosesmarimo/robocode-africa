@@ -20,6 +20,10 @@ class _SignupScreenState extends State<SignupScreen> {
   final _password = TextEditingController();
   final _birthYear = TextEditingController();
   final _guardian = TextEditingController();
+  // Optional referral code — pre-filled from a `?ref=` deep link when the app
+  // gains launch-URI parsing; a manual field is the v1 fallback. Only student
+  // signups accept a `ref` (see backend studentSignupSchema).
+  final _ref = TextEditingController();
   // School fields
   final _schoolName = TextEditingController();
   final _slug = TextEditingController();
@@ -29,7 +33,7 @@ class _SignupScreenState extends State<SignupScreen> {
 
   @override
   void dispose() {
-    for (final c in [_name, _email, _password, _birthYear, _guardian, _schoolName, _slug, _adminName]) {
+    for (final c in [_name, _email, _password, _birthYear, _guardian, _ref, _schoolName, _slug, _adminName]) {
       c.dispose();
     }
     super.dispose();
@@ -43,12 +47,14 @@ class _SignupScreenState extends State<SignupScreen> {
     });
     try {
       if (_mode == 0) {
+        final ref = _ref.text.trim();
         await ApiClient.instance.post('/auth/student-signup', body: {
           'displayName': _name.text.trim(),
           'email': _email.text.trim(),
           'password': _password.text,
           'birthYear': _birthYear.text.trim(),
           'guardianEmail': _guardian.text.trim(),
+          if (ref.isNotEmpty) 'ref': ref,
         });
       } else {
         await ApiClient.instance.post('/auth/school-signup', body: {
@@ -137,6 +143,16 @@ class _SignupScreenState extends State<SignupScreen> {
         TextFormField(controller: _password, obscureText: true, decoration: const InputDecoration(labelText: 'Password', prefixIcon: Icon(Icons.lock_outline)), validator: _pwV),
         TextFormField(controller: _birthYear, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Birth year', prefixIcon: Icon(Icons.cake_outlined)), validator: _req),
         TextFormField(controller: _guardian, keyboardType: TextInputType.emailAddress, decoration: const InputDecoration(labelText: 'Parent/guardian email (under 13)', prefixIcon: Icon(Icons.family_restroom_outlined))),
+        TextFormField(
+          controller: _ref,
+          textCapitalization: TextCapitalization.characters,
+          maxLength: 16,
+          decoration: const InputDecoration(
+            labelText: 'Have an invite code? (optional)',
+            prefixIcon: Icon(Icons.card_giftcard_outlined),
+            counterText: '',
+          ),
+        ),
       ]);
 
   List<Widget> _schoolFields() => _gap([

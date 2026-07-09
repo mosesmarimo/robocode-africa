@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { apiLogin, apiPublic, ApiError } from "@/lib/api/client";
 import { setSessionCookie, clearSessionCookie } from "@/lib/auth/session";
+import { getRefCookie, clearRefCookie } from "@/lib/referrals/ref-cookie";
 
 export type ActionState = { ok?: boolean; error?: string; fieldErrors?: Record<string, string> };
 
@@ -41,6 +42,7 @@ export async function login(_prev: ActionState, formData: FormData): Promise<Act
 
 export async function studentSignup(_prev: ActionState, formData: FormData): Promise<ActionState> {
   const { host, tenant } = await reqHost();
+  const ref = await getRefCookie();
   let result: { redirect?: string };
   try {
     result = await apiPublic(
@@ -51,6 +53,7 @@ export async function studentSignup(_prev: ActionState, formData: FormData): Pro
         password: String(formData.get("password") ?? ""),
         birthYear: String(formData.get("birthYear") ?? ""),
         guardianEmail: String(formData.get("guardianEmail") ?? ""),
+        ...(ref ? { ref } : {}),
       },
       host,
       tenant,
@@ -58,6 +61,7 @@ export async function studentSignup(_prev: ActionState, formData: FormData): Pro
   } catch (e) {
     return asState(e);
   }
+  if (ref) await clearRefCookie();
   redirect(result.redirect ?? "/pending");
 }
 

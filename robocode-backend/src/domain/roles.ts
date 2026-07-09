@@ -9,25 +9,6 @@ export const ROLES = [
 
 export type Role = (typeof ROLES)[number];
 
-export const ROLE_LABELS: Record<Role, string> = {
-  super_admin: "Platform Admin",
-  moderator: "Moderator",
-  school_admin: "School Admin",
-  teacher: "Teacher",
-  student: "Student",
-  parent: "Parent / Guardian",
-};
-
-// Higher number = more authority (for UI hints only; real checks are capability-based).
-export const ROLE_RANK: Record<Role, number> = {
-  super_admin: 100,
-  moderator: 80,
-  school_admin: 60,
-  teacher: 40,
-  student: 20,
-  parent: 10,
-};
-
 export type Capability =
   | "platform.manage"
   | "platform.approve_direct"

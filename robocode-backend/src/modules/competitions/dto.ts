@@ -8,14 +8,14 @@ import { z } from "zod";
  */
 export const enterCompetitionSchema = z.object({
   // Optional team entry; when omitted the entry is created for the solo user.
-  teamId: z.string().optional(),
+  teamId: z.string().trim().min(1).max(40).optional(),
 });
 
 export type EnterCompetitionInput = z.infer<typeof enterCompetitionSchema>;
 
 /** Body for submitting a challenge solution. The taskId comes from the route param. */
 export const submitSolutionSchema = z.object({
-  code: z.string(),
+  code: z.string().max(20000),
 });
 
 export type SubmitSolutionInput = z.infer<typeof submitSolutionSchema>;

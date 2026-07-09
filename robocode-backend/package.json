@@ -2,6 +2,7 @@
   "name": "robocode-backend",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "pnpm@9.15.9",
   "prisma": {
     "seed": "tsx prisma/seed.ts"
   },
@@ -14,21 +15,28 @@
     "db:push": "prisma db push",
     "db:generate": "prisma generate",
     "db:seed": "tsx prisma/seed.ts",
+    "db:seed-content": "tsx prisma/seed-content.ts",
+    "db:seed-coding": "tsx prisma/seed-coding-templates.ts",
+    "db:seed-robotics": "tsx prisma/seed-robotics-templates.ts",
     "db:reset": "prisma db push --force-reset && tsx prisma/seed.ts",
     "postinstall": "prisma generate"
   },
   "dependencies": {
+    "@aws-sdk/client-polly": "^3.1073.0",
     "@nestjs/common": "^11.0.0",
     "@nestjs/config": "^4.0.0",
     "@nestjs/core": "^11.0.0",
     "@nestjs/platform-express": "^11.0.0",
+    "@nestjs/throttler": "^6.5.0",
     "@prisma/client": "^6",
     "bcryptjs": "^3.0.3",
     "cookie-parser": "^1.4.7",
     "jose": "^6.2.3",
     "nanoid": "^5.1.14",
+    "prisma": "^6",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
+    "tar-stream": "^3.2.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -37,7 +45,7 @@
     "@types/cookie-parser": "^1.4.8",
     "@types/express": "^5.0.0",
     "@types/node": "^20",
-    "prisma": "^6",
+    "@types/tar-stream": "^3.1.4",
     "tsx": "^4.22.4",
     "typescript": "^5"
   }

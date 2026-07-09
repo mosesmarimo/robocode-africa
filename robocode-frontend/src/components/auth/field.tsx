@@ -18,12 +18,20 @@ export function Field({
   error?: string;
   hint?: string;
 } & React.InputHTMLAttributes<HTMLInputElement>) {
+  const errorId = `${name}-error`;
   return (
     <div className={cn("space-y-1.5", className)}>
       <Label htmlFor={name}>{label}</Label>
-      <Input id={name} name={name} aria-invalid={!!error} className={cn(error && "border-destructive")} {...props} />
+      <Input
+        id={name}
+        name={name}
+        aria-invalid={!!error}
+        aria-describedby={error ? errorId : undefined}
+        className={cn(error && "border-destructive")}
+        {...props}
+      />
       {error ? (
-        <p className="text-xs text-destructive">{error}</p>
+        <p id={errorId} role="alert" className="text-xs text-destructive">{error}</p>
       ) : hint ? (
         <p className="text-xs text-muted-foreground">{hint}</p>
       ) : null}

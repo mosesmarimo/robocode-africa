@@ -1,8 +1,13 @@
 // Board catalogue for RoboCode Studio. Visuals use @wokwi/elements; pin coordinates are read
 // from each element's runtime `pinInfo`. Simulation binds to the right MCU core.
 
+import { BoardProfile, UNO_PROFILE, ESP32_PROFILE } from "@/lib/sim/board-profile";
+
 export type BoardId = "arduino-uno" | "esp32" | "raspberry-pi-pico";
 export type McuTarget = "avr8js" | "esp32" | "rp2040js";
+
+export type { BoardProfile };
+export { UNO_PROFILE, ESP32_PROFILE };
 
 export interface BoardDef {
   id: BoardId;
@@ -19,6 +24,12 @@ export interface BoardDef {
   defaultLanguage: "arduino" | "micropython";
   starterCode: string;
   accent: string;
+  /** Sim engine profile (present only for InterpreterEngine-routed boards: Uno/ESP32). */
+  profile?: BoardProfile;
+  /** Element pin label -> GPIO label used by the sim Machine (e.g. ESP32 "VP" -> "36"). */
+  pinAliases?: Record<string, string>;
+  /** Board element property that renders the on-board LED (uno: led13, esp32: led1, pico: ledBuiltIn). */
+  builtinLedProp?: string;
 }
 
 const UNO_STARTER = `// RoboCode.Africa — Arduino UNO
@@ -80,6 +91,8 @@ export const BOARDS: Record<BoardId, BoardDef> = {
     defaultLanguage: "arduino",
     starterCode: UNO_STARTER,
     accent: "#00979d",
+    profile: UNO_PROFILE,
+    builtinLedProp: "led13",
   },
   esp32: {
     id: "esp32",
@@ -95,6 +108,9 @@ export const BOARDS: Record<BoardId, BoardDef> = {
     defaultLanguage: "arduino",
     starterCode: ESP32_STARTER,
     accent: "#e7352c",
+    profile: ESP32_PROFILE,
+    builtinLedProp: "led1",
+    pinAliases: { VP: "36", VN: "39", TX0: "1", RX0: "3", TX2: "17", RX2: "16" },
   },
   "raspberry-pi-pico": {
     id: "raspberry-pi-pico",
@@ -102,8 +118,9 @@ export const BOARDS: Record<BoardId, BoardDef> = {
     shortName: "Pico",
     mcu: "RP2040",
     mcuTarget: "rp2040js",
-    // Closest RP2040 element shipped in @wokwi/elements; runs real RP2040 firmware via rp2040js.
-    wokwiTag: "wokwi-nano-rp2040-connect",
+    // First-party Pico board element (src/components/studio/pi-pico-board.tsx) with real
+    // GP-numbered pin labels; runs real RP2040 firmware via rp2040js.
+    wokwiTag: "rc-pi-pico",
     languages: ["micropython", "arduino"],
     blurb: "Dual-core ARM Cortex-M0+ board. Runs real RP2040 firmware via rp2040js.",
     gpio: ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "15", "16", "17", "18", "19", "20", "25"],
@@ -111,6 +128,14 @@ export const BOARDS: Record<BoardId, BoardDef> = {
     defaultLanguage: "micropython",
     starterCode: PICO_STARTER,
     accent: "#c51a4a",
+    builtinLedProp: "ledBuiltIn",
+    // Legacy Nano D/A labels, kept so pre-existing saved diagrams still simulate after
+    // Task 7 switches the board element to the first-party Pico with its own GP-numbered pinout.
+    pinAliases: {
+      D2: "25", D3: "15", D4: "16", D5: "17", D6: "18", D7: "19", D8: "20", D9: "21",
+      D10: "5", D11: "7", D12: "4", D13: "6",
+      A0: "26", A1: "27", A2: "28", A3: "29", A4: "12", A5: "13", RX: "1",
+    },
   },
 };
 

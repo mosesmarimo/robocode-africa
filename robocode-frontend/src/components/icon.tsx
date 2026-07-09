@@ -3,7 +3,8 @@ import {
   ClipboardList, CheckCheck, UserCheck, Palette, Globe, Building2, Shield, Library, Activity,
   Bell, Settings, LogOut, Plus, Search, Sparkles, Lightbulb, Radar, Crown, Brain, Flame, Zap,
   Play, Square, RotateCcw, Save, Share2, Folder, BookOpen, ChevronDown, Menu, X, Check, Trash2,
-  Cable, MousePointer2, ZoomIn, ZoomOut, Hand, Wifi, Bluetooth, HelpCircle, type LucideProps,
+  Cable, MousePointer2, ZoomIn, ZoomOut, Hand, Wifi, Bluetooth, HelpCircle,
+  Newspaper, UserPlus, UsersRound, Heart, MessageCircle, Archive, Flag, UserRound, Route, type LucideProps,
 } from "lucide-react";
 
 const REGISTRY: Record<string, React.ComponentType<LucideProps>> = {
@@ -17,6 +18,9 @@ const REGISTRY: Record<string, React.ComponentType<LucideProps>> = {
   "book-open": BookOpen, "chevron-down": ChevronDown, menu: Menu, x: X, check: Check, "trash-2": Trash2,
   cable: Cable, "mouse-pointer-2": MousePointer2, "zoom-in": ZoomIn, "zoom-out": ZoomOut, hand: Hand,
   wifi: Wifi, bluetooth: Bluetooth,
+  newspaper: Newspaper, "user-plus": UserPlus, "users-round": UsersRound, heart: Heart,
+  "message-circle": MessageCircle, archive: Archive, flag: Flag, "user-round": UserRound,
+  route: Route,
 };
 
 export function Icon({ name, className, ...props }: { name: string; className?: string } & LucideProps) {

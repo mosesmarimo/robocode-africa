@@ -12,7 +12,19 @@ class AuthState extends ChangeNotifier {
   AuthStatus status = AuthStatus.unknown;
   AppUser? user;
 
+  AuthState() {
+    // A 401 from any request (expired/revoked JWT) signs the user out so the
+    // router redirects to /login instead of leaving them stuck on protected
+    // screens. The client has already cleared the token by this point.
+    _api.onUnauthorized = _onUnauthorized;
+  }
+
   bool get isSignedIn => status == AuthStatus.signedIn && user != null;
+
+  void _onUnauthorized() {
+    if (status == AuthStatus.signedOut) return;
+    _set(AuthStatus.signedOut, null);
+  }
 
   /// On app start: if a token exists, validate it via /auth/me.
   Future<void> bootstrap() async {

@@ -8,10 +8,12 @@ import {
   brandingSchema,
   policiesSchema,
   rejectStudentSchema,
+  resetPasswordSchema,
   type AddDomainInput,
   type BrandingInput,
   type PoliciesInput,
   type RejectStudentInput,
+  type ResetPasswordInput,
 } from "./dto";
 
 /**
@@ -96,6 +98,17 @@ export class SchoolController {
   @Post("students/:userId/reinstate")
   reinstateStudent(@CurrentUser() user: AuthUser, @Param("userId") userId: string) {
     return this.school.reinstateStudent(user, userId);
+  }
+
+  /** resetMemberPassword — reset a student's/teacher's password (same tenant). */
+  @RequireCapability("tenant.manage")
+  @Post("members/:userId/reset-password")
+  resetMemberPassword(
+    @CurrentUser() user: AuthUser,
+    @Param("userId") userId: string,
+    @Body(new ZodPipe(resetPasswordSchema)) body: ResetPasswordInput,
+  ) {
+    return this.school.resetMemberPassword(user, userId, body.password);
   }
 
   /** updateBranding (service also re-checks tenant.branding, mirroring the old action). */

@@ -40,7 +40,20 @@ export class JwtAuthGuard implements CanActivate {
           where: { id: session.uid },
           include: { tenant: true },
         });
-        if (user && user.status !== "suspended" && user.status !== "rejected") {
+        // Token revocation: a password change bumps the user's tokenVersion, so
+        // any JWT minted before that (lower/absent tv) no longer authenticates.
+        // Tokens issued before this field existed carry no tv → treated as 0,
+        // matching the default so existing sessions survive the rollout. A
+        // revoked token simply doesn't authenticate (falls through to the public
+        // check / 401) rather than throwing — so a stale token on a public route
+        // like /auth/login doesn't block re-login.
+        const tokenCurrent = !!user && (session.tv ?? 0) === user.tokenVersion;
+        if (user && tokenCurrent && user.status !== "suspended" && user.status !== "rejected") {
+          // A suspended tenant must not let its (otherwise active) users in —
+          // suspendTenant only flips Tenant.status, so enforce it here.
+          if (user.tenant?.status === "suspended") {
+            throw new ForbiddenException("TENANT_SUSPENDED");
+          }
           (req as Request & { user?: unknown }).user = user;
 
           const requireActive = this.reflector.getAllAndOverride<boolean>(REQUIRE_ACTIVE_KEY, targets);

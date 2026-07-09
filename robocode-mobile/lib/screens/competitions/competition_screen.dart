@@ -29,6 +29,7 @@ class _CompetitionScreenState extends State<CompetitionScreen> {
   void _reload() => setState(() => _future = _load());
 
   Future<void> _enter(String competitionId) async {
+    if (_entering) return;
     setState(() => _entering = true);
     try {
       await ApiClient.instance
@@ -41,6 +42,12 @@ class _CompetitionScreenState extends State<CompetitionScreen> {
     } on ApiException catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Could not reach the server. Check your connection.')),
+      );
     } finally {
       if (mounted) setState(() => _entering = false);
     }
@@ -80,17 +87,17 @@ class _CompetitionScreenState extends State<CompetitionScreen> {
                           color: Theme.of(context).textTheme.bodyLarge?.color)),
                 ],
                 const SizedBox(height: 24),
-                _sectionTitle('Rounds'),
+                const SectionTitle('Rounds'),
                 const SizedBox(height: 10),
                 if (rounds.isEmpty)
-                  _hint('No rounds have been scheduled yet.')
+                  const HintCard('No rounds have been scheduled yet.')
                 else
                   ...rounds.map((r) => _roundCard(context, r as Map<String, dynamic>)),
                 const SizedBox(height: 24),
-                _sectionTitle('Standings'),
+                const SectionTitle('Standings'),
                 const SizedBox(height: 10),
                 if (entries.isEmpty)
-                  _hint('No entries yet. Be the first to compete!')
+                  const HintCard('No entries yet. Be the first to compete!')
                 else
                   ..._standings(context, entries),
               ],
@@ -246,9 +253,13 @@ class _CompetitionScreenState extends State<CompetitionScreen> {
 
   Widget _standingRow(BuildContext context, int rank, Map<String, dynamic> entry,
       {required bool isLast}) {
-    final team = (entry['team'] as Map?) ?? const {};
-    final teamName = team['name']?.toString() ?? 'Team';
-    final avatarSeed = team['avatarSeed']?.toString();
+    // Entries are either a team (team relation set) or a solo entrant (user set).
+    final team = entry['team'] as Map?;
+    final soloUser = entry['user'] as Map?;
+    final teamName =
+        team?['name']?.toString() ?? soloUser?['displayName']?.toString() ?? 'Entrant';
+    final avatarSeed =
+        (team?['avatarSeed'] ?? soloUser?['avatarSeed'])?.toString();
     final score = (entry['totalScore'] as num?)?.toDouble() ?? 0;
 
     return Column(
@@ -317,13 +328,4 @@ class _CompetitionScreenState extends State<CompetitionScreen> {
     return score.toStringAsFixed(1);
   }
 
-  Widget _sectionTitle(String title) =>
-      Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold));
-
-  Widget _hint(String text) => Card(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Text(text, style: TextStyle(color: Theme.of(context).hintColor)),
-        ),
-      );
 }

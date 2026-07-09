@@ -20,13 +20,16 @@ export const studentSignupSchema = z
   .object({
     displayName: z.string().min(2, "Tell us your name"),
     email: z.string().email("Enter a valid email"),
-    password: z.string().min(6, "Use at least 6 characters"),
+    password: z.string().min(10, "Use at least 10 characters"),
     birthYear: z.coerce
       .number()
       .int()
       .min(currentYear - 100, "Check the year")
       .max(currentYear, "Check the year"),
     guardianEmail: z.string().email("Enter a valid guardian email").optional().or(z.literal("")),
+    // Captured from a `?ref=` referral link and threaded through to
+    // ReferralsService.recordSignup after the user row is created.
+    ref: z.string().max(16).optional(),
   })
   .refine(
     (d) => {

@@ -1,0 +1,12 @@
+# robocode-sandbox-base
+# Handles: cpp, python, javascript, typescript, sql
+FROM alpine:3.20
+
+RUN apk add --no-cache g++ python3 nodejs npm sqlite libc6-compat \
+  && npm i -g esbuild
+
+COPY run.sh /run.sh
+RUN chmod +x /run.sh
+
+WORKDIR /work
+USER 65534

@@ -9,6 +9,7 @@ import { getBoard } from "@/lib/domain/boards";
 import { COMPONENT_BY_ID } from "@/lib/domain/components";
 import { WokwiPart } from "@/components/studio/wokwi-part";
 import { Breadboard } from "@/components/studio/breadboard";
+import { PiPicoBoard } from "@/components/studio/pi-pico-board";
 import { SimOverlay } from "@/components/studio/sim-overlay";
 import { AddComponentMenu } from "@/components/studio/add-component-menu";
 import { CanvasAiValidate } from "@/components/studio/ai-validate";
@@ -16,6 +17,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuShortcut, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { getPartEl, getPinInfo } from "@/lib/studio/pin-registry";
+import { wireLabelColors } from "@/lib/studio/wire-label";
 
 function partPinPos(part: DiagramPart, pinName: string) {
   const pins = getPinInfo(part.id);
@@ -41,9 +43,14 @@ const GSNAP = (v: number) => Math.round(v / 8) * 8;
 type RouteItem = { id: string; a: Pt; b: Pt };
 
 /**
- * Lane-based orthogonal "bus" routing: each wire's horizontal run is packed into the
- * lowest free lane (in a top or bottom channel) whose occupied x-ranges don't overlap,
- * so no two horizontal segments ever sit on top of each other (interval-graph colouring).
+ * Orthogonal "bus" routing in two passes so no two wire segments ever sit on top
+ * of one another (they may only cross):
+ *  1. Horizontal lanes — each wire's horizontal run is packed into the lowest free
+ *     lane in a top/bottom channel whose occupied x-ranges don't overlap.
+ *  2. Vertical risers — every riser is column-packed by interval-graph colouring
+ *     per x: risers sharing an x whose y-spans overlap (e.g. several wires on the
+ *     same GND/5V pin, or pins that line up) are fanned out to distinct x with a
+ *     short jog off the pin, so collinear risers never overlay.
  */
 function computeBusRoutes(items: RouteItem[]): Map<string, Pt[]> {
   const map = new Map<string, Pt[]>();
@@ -55,18 +62,18 @@ function computeBusRoutes(items: RouteItem[]): Map<string, Pt[]> {
     bot = Math.max(bot, it.a.y, it.b.y);
   }
   const mid = (top + bot) / 2;
-  const GAP = 10;
-  const topBase = top - 22;
-  const botBase = bot + 22;
+  const GAP = 12;
+  const RISER_STEP = 7;
+  const topBase = top - 24;
+  const botBase = bot + 24;
   const topLanes: [number, number][][] = [];
   const botLanes: [number, number][][] = [];
 
-  // pack longer spans first, then left-to-right, for tight, stable lanes
-  const sorted = [...items].sort((p, q) => {
-    const ml = (it: RouteItem) => Math.min(it.a.x, it.b.x);
-    return ml(p) - ml(q);
-  });
+  // pack left-to-right for tight, stable lanes
+  const sorted = [...items].sort((p, q) => Math.min(p.a.x, p.b.x) - Math.min(q.a.x, q.b.x));
 
+  // ---- pass 1: a horizontal lane Y per wire ----
+  const laneYOf = new Map<string, number>();
   for (const it of sorted) {
     const x0 = Math.min(it.a.x, it.b.x) - 6;
     const x1 = Math.max(it.a.x, it.b.x) + 6;
@@ -81,8 +88,49 @@ function computeBusRoutes(items: RouteItem[]): Map<string, Pt[]> {
       }
       L++;
     }
-    const laneY = toTop ? topBase - L * GAP : botBase + L * GAP;
-    map.set(it.id, [{ x: GSNAP(it.a.x), y: laneY }, { x: GSNAP(it.b.x), y: laneY }]);
+    laneYOf.set(it.id, toTop ? topBase - L * GAP : botBase + L * GAP);
+  }
+
+  // ---- pass 2: column-pack the vertical risers ----
+  type Riser = { key: number; lo: number; hi: number; apply: (off: number) => void };
+  const offA = new Map<string, number>();
+  const offB = new Map<string, number>();
+  const byColumn = new Map<number, Riser[]>();
+  for (const it of sorted) {
+    const laneY = laneYOf.get(it.id)!;
+    const ax = GSNAP(it.a.x);
+    const bx = GSNAP(it.b.x);
+    const push = (key: number, y0: number, y1: number, apply: (o: number) => void) => {
+      const r: Riser = { key, lo: Math.min(y0, y1), hi: Math.max(y0, y1), apply };
+      const g = byColumn.get(key);
+      if (g) g.push(r);
+      else byColumn.set(key, [r]);
+    };
+    push(ax, it.a.y, laneY, (o) => offA.set(it.id, o));
+    push(bx, laneY, it.b.y, (o) => offB.set(it.id, o));
+  }
+  for (const group of byColumn.values()) {
+    group.sort((p, q) => p.lo - q.lo);
+    const colEnd: number[] = []; // highest `hi` assigned to each colour
+    for (const r of group) {
+      let c = 0;
+      while (colEnd[c] !== undefined && colEnd[c] > r.lo) c++;
+      colEnd[c] = r.hi;
+      r.apply(c);
+    }
+  }
+
+  // ---- build routes: jog → riser → lane → riser → jog ----
+  for (const it of sorted) {
+    const laneY = laneYOf.get(it.id)!;
+    const ax = GSNAP(it.a.x) + (offA.get(it.id) ?? 0) * RISER_STEP;
+    const bx = GSNAP(it.b.x) + (offB.get(it.id) ?? 0) * RISER_STEP;
+    map.set(it.id, [
+      { x: ax, y: it.a.y },
+      { x: ax, y: laneY },
+      { x: bx, y: laneY },
+      { x: bx, y: it.b.y },
+    ]);
   }
   return map;
 }
@@ -103,7 +151,9 @@ function distToSeg(px: number, py: number, ax: number, ay: number, bx: number, b
 function PartView({ part }: { part: DiagramPart }) {
   if (part.id === "mcu" || part.type.startsWith("__board__")) {
     const boardId = part.type.split(":")[1] ?? "arduino-uno";
-    return <WokwiPart partId={part.id} tag={getBoard(boardId).wokwiTag} />;
+    const tag = getBoard(boardId).wokwiTag;
+    if (tag === "rc-pi-pico") return <PiPicoBoard partId={part.id} />;
+    return <WokwiPart partId={part.id} tag={tag} />;
   }
   const def = COMPONENT_BY_ID[part.type];
   if (!def) return null;
@@ -111,7 +161,7 @@ function PartView({ part }: { part: DiagramPart }) {
   return <WokwiPart partId={part.id} tag={def.tag} props={part.props} />;
 }
 
-export function StudioCanvas() {
+export function StudioCanvas({ readOnly = false }: { readOnly?: boolean } = {}) {
   const parts = useStudio((s) => s.parts);
   const wires = useStudio((s) => s.wires);
   const selectedId = useStudio((s) => s.selectedId);
@@ -187,7 +237,7 @@ export function StudioCanvas() {
   // ---- part dragging ----
   const drag = React.useRef<{ id: string; dx: number; dy: number } | null>(null);
   const onPartPointerDown = (e: React.PointerEvent, part: DiagramPart) => {
-    if (running) return;
+    if (running || readOnly) return;
     e.stopPropagation();
     useStudio.getState().select(part.id);
     const w = screenToWorld(e.clientX, e.clientY);
@@ -198,13 +248,14 @@ export function StudioCanvas() {
   // ---- wire bend points ----
   const bendDrag = React.useRef<{ wireId: string; index: number } | null>(null);
   const startBendDrag = (e: React.PointerEvent, wireId: string, index: number) => {
-    if (running) return;
+    if (running || readOnly) return;
     e.stopPropagation();
     useStudio.getState().selectWire(wireId);
     bendDrag.current = { wireId, index };
     (e.target as Element).setPointerCapture?.(e.pointerId);
   };
   const insertBend = (e: React.MouseEvent, wireId: string, a: { x: number; y: number }, pts: { x: number; y: number }[], b: { x: number; y: number }) => {
+    if (readOnly) return;
     e.stopPropagation();
     const c = screenToWorld(e.clientX, e.clientY);
     const full = [a, ...pts, b];
@@ -256,6 +307,7 @@ export function StudioCanvas() {
   };
 
   const onPinClick = (e: React.PointerEvent, partId: string, pinName: string) => {
+    if (readOnly) return;
     e.stopPropagation();
     const ref = `${partId}:${pinName}`;
     const st = useStudio.getState();
@@ -271,10 +323,10 @@ export function StudioCanvas() {
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") useStudio.getState().cancelWire();
-      if ((e.key === "Delete" || e.key === "Backspace") && document.activeElement?.tagName !== "TEXTAREA") {
+      if (!readOnly && (e.key === "Delete" || e.key === "Backspace") && document.activeElement?.tagName !== "TEXTAREA") {
         useStudio.getState().deleteSelected();
       }
-      if ((e.metaKey || e.ctrlKey) && e.key === "z") {
+      if (!readOnly && (e.metaKey || e.ctrlKey) && e.key === "z") {
         e.preventDefault();
         e.shiftKey ? useStudio.getState().redo() : useStudio.getState().undo();
       }
@@ -284,13 +336,25 @@ export function StudioCanvas() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [fitView]);
+  }, [fitView, readOnly]);
 
   const wirePos = (ref: string) => {
     const [pid, pin] = ref.split(":");
     const part = parts.find((p) => p.id === pid);
     return part ? partPinPos(part, pin) : null;
   };
+
+  // "partId:pin" -> wire colour, so PinDots can paint a connected pin in the
+  // colour of the line arriving at it (last wire wins on shared pins, e.g. GND).
+  const pinWireColors = React.useMemo(() => {
+    const m = new Map<string, string>();
+    for (const w of wires) {
+      const c = w.color ?? "#16a34a";
+      m.set(w.from, c);
+      m.set(w.to, c);
+    }
+    return m;
+  }, [wires]);
 
   // lane-routed paths for every wire that has no manual bend points
   const autoItems: RouteItem[] = [];
@@ -343,9 +407,8 @@ export function StudioCanvas() {
                   onDoubleClick={(e) => insertBend(e, wire.id, a, explicit, b)}
                 />
                 <path d={d} stroke={color} strokeWidth={selected ? 5 : 3} fill="none" strokeLinecap="round" strokeLinejoin="round" className="pointer-events-none" />
-                {/* connection terminals — clearly land on each pin */}
-                <circle cx={a.x} cy={a.y} r={4} fill={color} stroke="#fff" strokeWidth={1.2} className="pointer-events-none" />
-                <circle cx={b.x} cy={b.y} r={4} fill={color} stroke="#fff" strokeWidth={1.2} className="pointer-events-none" />
+                {/* connection terminals live in the overlay SVG after the parts, so
+                    they can't be occluded by opaque board bodies (see below) */}
                 {selected &&
                   explicit.map((p, i) => (
                     <circle
@@ -386,16 +449,37 @@ export function StudioCanvas() {
               }
             >
               <PartView part={part} />
-              <PinDots part={part} onPinDown={onPinClick} />
+              <PinDots part={part} onPinDown={onPinClick} pinColors={pinWireColors} />
               {running && <SimOverlay part={part} />}
             </div>
           </div>
         ))}
+
+        {/* wire terminals + pin-name labels — a second SVG layer drawn AFTER the
+            parts so a terminal landing on a board header (which sits inside the
+            opaque body outline, e.g. the Pico's) is never painted over. Board
+            endpoints also get the pin name in the wire's colour so every line
+            unambiguously shows which pin it connects to. */}
+        <svg className="pointer-events-none absolute left-0 top-0 overflow-visible" width={1} height={1}>
+          {wires.map((wire) => {
+            const a = wirePos(wire.from);
+            const b = wirePos(wire.to);
+            if (!a || !b) return null;
+            const color = wire.color ?? "#16a34a";
+            return (
+              <g key={wire.id}>
+                {[{ pt: a, ref: wire.from }, { pt: b, ref: wire.to }].map(({ pt, ref }, i) => (
+                  <WireTerminal key={i} pt={pt} pinRef={ref} color={color} parts={parts} />
+                ))}
+              </g>
+            );
+          })}
+        </svg>
       </div>
 
       {/* Canvas toolbar: Add component + overflow menu (Wokwi-style) */}
       <div className="absolute left-3 top-3 z-30 flex items-center gap-2" onPointerDown={(e) => e.stopPropagation()}>
-        <AddComponentMenu />
+        {!readOnly && <AddComponentMenu />}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button
@@ -406,13 +490,17 @@ export function StudioCanvas() {
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-56">
-            <DropdownMenuItem onClick={() => useStudio.getState().undo()}>
-              <Undo2 /> Undo <DropdownMenuShortcut>⌘Z</DropdownMenuShortcut>
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => useStudio.getState().redo()}>
-              <Redo2 /> Redo <DropdownMenuShortcut>⇧⌘Z</DropdownMenuShortcut>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
+            {!readOnly && (
+              <>
+                <DropdownMenuItem onClick={() => useStudio.getState().undo()}>
+                  <Undo2 /> Undo <DropdownMenuShortcut>⌘Z</DropdownMenuShortcut>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => useStudio.getState().redo()}>
+                  <Redo2 /> Redo <DropdownMenuShortcut>⇧⌘Z</DropdownMenuShortcut>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+              </>
+            )}
             <DropdownMenuItem onClick={fitView}>
               <Scan /> Fit to screen <DropdownMenuShortcut>F</DropdownMenuShortcut>
             </DropdownMenuItem>
@@ -448,14 +536,72 @@ export function StudioCanvas() {
         </DropdownMenu>
       </div>
 
-      <CanvasAiValidate />
+      {!readOnly && <CanvasAiValidate />}
 
       <ZoomControls zoom={zoom} setZoom={setZoom} reset={fitView} />
     </div>
   );
 }
 
-function PinDots({ part, onPinDown }: { part: DiagramPart; onPinDown: (e: React.PointerEvent, id: string, pin: string) => void }) {
+/**
+ * One wire endpoint: terminal rings exactly on the pin, plus — for board pins —
+ * the pin name in the wire's colour, placed just outside the board edge nearest
+ * the pin (left/right for side headers, above/below for top/bottom headers).
+ * Rendered in the above-parts overlay, so nothing occludes it.
+ */
+function WireTerminal({ pt, pinRef, color, parts }: { pt: Pt; pinRef: string; color: string; parts: DiagramPart[] }) {
+  const [pid, pin] = pinRef.split(":");
+  const part = parts.find((p) => p.id === pid);
+  const isBoard = !!part && (part.type.startsWith("__board__") || part.id === "mcu");
+  let vertical = false;
+  let after = true; // label after (right/below) vs before (left/above) the pin
+  if (part) {
+    const el = getPartEl(part.id);
+    const w = el?.offsetWidth ?? 0;
+    const h = el?.offsetHeight ?? 0;
+    const nx = w ? (pt.x - (part.x + w / 2)) / w : 0;
+    const ny = h ? (pt.y - (part.y + h / 2)) / h : 0;
+    vertical = Math.abs(ny) > Math.abs(nx);
+    after = vertical ? ny > 0 : nx > 0;
+  }
+  return (
+    <g className="pointer-events-none">
+      <circle cx={pt.x} cy={pt.y} r={8} fill={color} opacity={0.25} />
+      <circle cx={pt.x} cy={pt.y} r={4.5} fill={color} stroke="#fff" strokeWidth={1.5} />
+      <circle cx={pt.x} cy={pt.y} r={1.5} fill="#fff" opacity={0.9} />
+      {isBoard && (() => {
+        const lc = wireLabelColors(color);
+        return (
+          <text
+            x={vertical ? pt.x : after ? pt.x + 12 : pt.x - 12}
+            y={vertical ? (after ? pt.y + 16 : pt.y - 16) : pt.y}
+            dominantBaseline="central"
+            textAnchor={vertical ? "middle" : after ? "start" : "end"}
+            fontSize={11}
+            fontWeight={700}
+            fill={lc.fill}
+            stroke={lc.halo}
+            strokeWidth={3}
+            paintOrder="stroke"
+            style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}
+          >
+            {pin}
+          </text>
+        );
+      })()}
+    </g>
+  );
+}
+
+function PinDots({
+  part,
+  onPinDown,
+  pinColors,
+}: {
+  part: DiagramPart;
+  onPinDown: (e: React.PointerEvent, id: string, pin: string) => void;
+  pinColors: Map<string, string>;
+}) {
   const [pins, setPins] = React.useState<{ name: string; x: number; y: number }[]>([]);
   React.useEffect(() => {
     let frame = 0;
@@ -467,17 +613,27 @@ function PinDots({ part, onPinDown }: { part: DiagramPart; onPinDown: (e: React.
 
   return (
     <>
-      {pins.map((p) => (
-        <button
-          key={p.name}
-          title={p.name}
-          onPointerDown={(e) => onPinDown(e, part.id, p.name)}
-          className="group absolute -ml-2 -mt-2 grid size-4 place-items-center rounded-full"
-          style={{ left: p.x, top: p.y }}
-        >
-          <span className="size-2 rounded-full bg-amber-400/0 ring-1 ring-amber-400/0 transition-all group-hover:bg-amber-400 group-hover:ring-2 group-hover:ring-amber-300/60" />
-        </button>
-      ))}
+      {pins.map((p) => {
+        const wireColor = pinColors.get(`${part.id}:${p.name}`);
+        return (
+          <button
+            key={p.name}
+            title={p.name}
+            onPointerDown={(e) => onPinDown(e, part.id, p.name)}
+            className="group absolute -ml-2 -mt-2 grid size-4 place-items-center rounded-full"
+            style={{ left: p.x, top: p.y }}
+          >
+            <span
+              className="size-2 rounded-full bg-amber-400/0 ring-1 ring-amber-400/0 transition-all group-hover:bg-amber-400 group-hover:ring-2 group-hover:ring-amber-300/60"
+              style={
+                wireColor
+                  ? { backgroundColor: wireColor, boxShadow: `0 0 0 2.5px ${wireColor}59, 0 0 7px 1px ${wireColor}b3` }
+                  : undefined
+              }
+            />
+          </button>
+        );
+      })}
     </>
   );
 }
@@ -485,9 +641,9 @@ function PinDots({ part, onPinDown }: { part: DiagramPart; onPinDown: (e: React.
 function ZoomControls({ zoom, setZoom, reset }: { zoom: number; setZoom: (z: number) => void; reset: () => void }) {
   return (
     <div className="absolute bottom-4 right-4 flex items-center gap-1 rounded-lg border border-white/10 bg-black/40 p-1 text-white backdrop-blur">
-      <button className="grid size-8 place-items-center rounded hover:bg-white/10" onClick={() => setZoom(Math.max(0.3, zoom - 0.15))}>−</button>
+      <button aria-label="Zoom out" className="grid size-8 place-items-center rounded hover:bg-white/10" onClick={() => setZoom(Math.max(0.3, zoom - 0.15))}>−</button>
       <button className="min-w-16 rounded px-2 text-xs hover:bg-white/10" onClick={reset} title="Fit to screen">⤢ {Math.round(zoom * 100)}%</button>
-      <button className="grid size-8 place-items-center rounded hover:bg-white/10" onClick={() => setZoom(Math.min(2.5, zoom + 0.15))}>+</button>
+      <button aria-label="Zoom in" className="grid size-8 place-items-center rounded hover:bg-white/10" onClick={() => setZoom(Math.min(2.5, zoom + 0.15))}>+</button>
     </div>
   );
 }

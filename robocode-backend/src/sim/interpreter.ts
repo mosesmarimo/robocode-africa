@@ -1,8 +1,8 @@
 import { parse, ParseError, type Node } from "./parser";
 import { preprocess } from "./lexer";
 import type { Machine } from "./machine";
-
-/* eslint-disable @typescript-eslint/no-explicit-any */
+import type { BoardProfile } from "./board-profile";
+import { ESP_RAND_SEED, ESP_RAND_MUL, ESP_RAND_INC } from "./board-profile";
 
 export type SimYield = { kind: "wait"; ms: number } | { kind: "tick" };
 
@@ -10,26 +10,23 @@ class Scope {
   vars = new Map<string, any>();
   constructor(public parent?: Scope) {}
   get(name: string): any {
-    let s: Scope | undefined = this;
-    while (s) {
-      if (s.vars.has(name)) return s.vars.get(name);
-      s = s.parent;
+    if (this.vars.has(name)) return this.vars.get(name);
+    for (let scope = this.parent; scope; scope = scope.parent) {
+      if (scope.vars.has(name)) return scope.vars.get(name);
     }
     return undefined;
   }
   has(name: string): boolean {
-    let s: Scope | undefined = this;
-    while (s) {
-      if (s.vars.has(name)) return true;
-      s = s.parent;
+    if (this.vars.has(name)) return true;
+    for (let scope = this.parent; scope; scope = scope.parent) {
+      if (scope.vars.has(name)) return true;
     }
     return false;
   }
   set(name: string, value: any) {
-    let s: Scope | undefined = this;
-    while (s) {
-      if (s.vars.has(name)) return s.vars.set(name, value);
-      s = s.parent;
+    if (this.vars.has(name)) return this.vars.set(name, value);
+    for (let scope = this.parent; scope; scope = scope.parent) {
+      if (scope.vars.has(name)) return scope.vars.set(name, value);
     }
     this.vars.set(name, value);
   }
@@ -52,13 +49,23 @@ export class SimError extends Error {
 
 const ANALOG = ["A0", "A1", "A2", "A3", "A4", "A5", "A6", "A7"];
 
+// Hard cap on dynamically-sized array allocation so a sketch like
+// `int a[2000000000]` cannot OOM the grading process.
+const MAX_ARRAY_SIZE = 100_000;
+
 export class Interpreter {
   private ast: Node;
   private functions = new Map<string, Node>();
   private globals = new Scope();
   private steps = 0;
+  private ledcChannels: Record<number, { max: number }> = {};
+  private ledcPinByChannel: Record<number, string> = {};
+  private espRandState = ESP_RAND_SEED;
+  private bt: any;
+  private builtins: Record<string, (a: any[]) => any>;
+  private pinSets?: { out: Set<string>; analog: Set<string>; touch: Set<string>; dac: Set<string>; uart: Set<string> };
 
-  constructor(code: string, private machine: Machine) {
+  constructor(code: string, private machine: Machine, private profile?: BoardProfile, private boardName = "board") {
     let defines: Record<string, string> = {};
     try {
       defines = preprocess(code).defines;
@@ -67,6 +74,18 @@ export class Interpreter {
       if (e instanceof ParseError) throw new SimError(`Syntax error: ${e.message}`, e.line);
       throw e;
     }
+    this.bt = this.makeBT();
+    if (this.profile) {
+      const p = this.profile;
+      this.pinSets = {
+        out: new Set(p.pins),
+        analog: new Set(p.analogPins),
+        touch: new Set(p.touchPins),
+        dac: new Set(p.dacPins),
+        uart: new Set(p.uarts.flatMap((u) => [u.tx, u.rx])),
+      };
+    }
+    this.builtins = this.buildBuiltins();
     this.installConstants(defines);
     this.prepare();
   }
@@ -75,15 +94,21 @@ export class Interpreter {
     const g = this.globals;
     const c: Record<string, any> = {
       HIGH: 1, LOW: 0, INPUT: 0, OUTPUT: 1, INPUT_PULLUP: 2, PULLUP: 2,
-      true: true, false: false, LED_BUILTIN: 13, PI: Math.PI, TWO_PI: Math.PI * 2, HALF_PI: Math.PI / 2,
+      true: true, false: false, LED_BUILTIN: Number(this.profile?.ledBuiltin ?? "13"), PI: Math.PI, TWO_PI: Math.PI * 2, HALF_PI: Math.PI / 2,
       DEC: 10, HEX: 16, OCT: 8, BIN: 2, EULER: Math.E,
       CHANGE: 1, FALLING: 2, RISING: 3,
+      WL_CONNECTED: 3, WL_IDLE_STATUS: 0, WL_DISCONNECTED: 6,
     };
     ANALOG.forEach((a) => (c[a] = a));
     for (const [k, v] of Object.entries(c)) g.define(k, v);
+    // ESP32-style touch constants: T0..T9 map to profile.touchPins[] GPIO numbers.
+    this.profile?.touchPins.forEach((gpio, i) => g.define(`T${i}`, Number(gpio)));
     // Serial + objects
     g.define("Serial", this.makeSerial());
     g.define("Serial1", this.makeSerial());
+    g.define("Serial2", this.makeSerial());
+    g.define("WiFi", this.makeWiFi());
+    g.define("BluetoothSerial", this.bt);
     // #defines
     for (const [k, val] of Object.entries(defines)) {
       const num = Number(val);
@@ -140,14 +165,24 @@ export class Interpreter {
       }
       case "While": {
         while (truthy(yield* this.evalExpr(node.cond, env))) {
-          try { yield* this.execStmt(node.body, env); } catch (e) { if (e instanceof BreakSignal) break; if (e instanceof ContinueSignal) {} else throw e; }
+          try {
+            yield* this.execStmt(node.body, env);
+          } catch (e) {
+            if (e instanceof BreakSignal) break;
+            if (!(e instanceof ContinueSignal)) throw e;
+          }
           yield { kind: "tick" };
         }
         return;
       }
       case "DoWhile": {
         do {
-          try { yield* this.execStmt(node.body, env); } catch (e) { if (e instanceof BreakSignal) break; if (e instanceof ContinueSignal) {} else throw e; }
+          try {
+            yield* this.execStmt(node.body, env);
+          } catch (e) {
+            if (e instanceof BreakSignal) break;
+            if (!(e instanceof ContinueSignal)) throw e;
+          }
           yield { kind: "tick" };
         } while (truthy(yield* this.evalExpr(node.cond, env)));
         return;
@@ -156,7 +191,12 @@ export class Interpreter {
         const loopEnv = new Scope(env);
         if (node.init) yield* this.execStmt(node.init, loopEnv);
         while (node.cond ? truthy(yield* this.evalExpr(node.cond, loopEnv)) : true) {
-          try { yield* this.execStmt(node.body, loopEnv); } catch (e) { if (e instanceof BreakSignal) break; if (e instanceof ContinueSignal) {} else throw e; }
+          try {
+            yield* this.execStmt(node.body, loopEnv);
+          } catch (e) {
+            if (e instanceof BreakSignal) break;
+            if (!(e instanceof ContinueSignal)) throw e;
+          }
           if (node.update) yield* this.evalExpr(node.update, loopEnv);
           yield { kind: "tick" };
         }
@@ -176,9 +216,13 @@ export class Interpreter {
   }
 
   private *execVarDecl(node: Node, env: Scope): Generator<SimYield, void> {
-    const isObjType = /Servo|LiquidCrystal|SSD1306|Stepper|NeoPixel/.test(node.declType);
+    const isObjType = /Servo|LiquidCrystal|SSD1306|Stepper|NeoPixel|BluetoothSerial/.test(node.declType);
     for (const d of node.decls) {
       if (isObjType) {
+        if (node.declType.includes("BluetoothSerial")) {
+          env.define(d.name, this.bt);
+          continue;
+        }
         const args: any[] = [];
         for (const a of d.ctorArgs ?? []) args.push(yield* this.evalExpr(a, env));
         env.define(d.name, this.makeObject(node.declType, args));
@@ -190,7 +234,15 @@ export class Interpreter {
           for (const el of d.init.elements) arr.push(yield* this.evalExpr(el, env));
         } else if (d.arraySize) {
           const size = yield* this.evalExpr(d.arraySize, env);
-          arr = new Array(Number(size) || 0).fill(0);
+          // Cap allocation so e.g. `int a[2000000000]` can't OOM the process.
+          const n = Math.max(0, Math.trunc(Number(size) || 0));
+          if (n > MAX_ARRAY_SIZE) {
+            throw new SimError(
+              `Array size ${n} is too large (max ${MAX_ARRAY_SIZE}).`,
+              node.line,
+            );
+          }
+          arr = new Array(n).fill(0);
         }
         env.define(d.name, arr);
         continue;
@@ -302,6 +354,7 @@ export class Interpreter {
       const m = node.callee.prop;
       if (obj && typeof obj[m] === "function") return obj[m](...args);
       if (typeof obj === "string") return stringMethod(obj, m, args);
+      if (obj && typeof obj === "object") this.machine.warn(`unsupported method ${m}`);
       return 0;
     }
     const name = node.callee.type === "Ident" ? node.callee.name : "";
@@ -318,6 +371,7 @@ export class Interpreter {
     if (this.functions.has(name)) return yield* this.callUser(name, args);
     const b = this.builtin(name);
     if (b) return b(args);
+    if (name) this.machine.warn(`unsupported call ${name}`);
     return 0;
   }
 
@@ -340,18 +394,40 @@ export class Interpreter {
     return String(Math.trunc(Number(v)));
   }
 
-  private builtin(name: string): ((args: any[]) => any) | null {
+  private buildBuiltins(): Record<string, (a: any[]) => any> {
     const m = this.machine;
     const pl = (v: any) => this.pinLabel(v);
-    const map: Record<string, (a: any[]) => any> = {
-      pinMode: (a) => { m.pinMode(pl(a[0]), a[1] === 2 ? "input_pullup" : a[1] === 1 ? "output" : "input"); return 0; },
-      digitalWrite: (a) => { m.digitalWrite(pl(a[0]), a[1]); return 0; },
-      digitalRead: (a) => m.digitalRead(pl(a[0])),
-      analogRead: (a) => m.analogRead(pl(a[0])),
-      analogWrite: (a) => { m.analogWrite(pl(a[0]), a[1]); return 0; },
-      tone: (a) => { m.tone(pl(a[0]), a[1]); return 0; },
-      noTone: (a) => { m.noTone(pl(a[0])); return 0; },
-      pulseIn: (a) => m.pulseIn(pl(a[0])),
+    const vp = (v: any, op: "read" | "write") => this.validatePin(pl(v), op);
+    return {
+      pinMode: (a) => { const p = vp(a[0], "read"); if (p) m.pinMode(p, a[1] === 2 ? "input_pullup" : a[1] === 1 ? "output" : "input"); return 0; },
+      digitalWrite: (a) => { const p = vp(a[0], "write"); if (p) m.digitalWrite(p, a[1]); return 0; },
+      digitalRead: (a) => m.digitalRead(vp(a[0], "read")),
+      analogRead: (a) => m.analogRead(vp(a[0], "read")),
+      analogWrite: (a) => { const p = vp(a[0], "write"); if (p) m.analogWrite(p, a[1]); return 0; },
+      tone: (a) => { const p = vp(a[0], "write"); if (p) m.tone(p, a[1]); return 0; },
+      noTone: (a) => { const p = vp(a[0], "write"); if (p) m.noTone(p); return 0; },
+      pulseIn: (a) => m.pulseIn(vp(a[0], "read")),
+      ledcSetup: (a) => { this.ledcChannels[Number(a[0])] = { max: (2 ** Number(a[2])) - 1 }; return Number(a[1]); },
+      ledcAttachPin: (a) => { const p = vp(a[0], "write"); if (p) { this.ledcPinByChannel[Number(a[1])] = p; m.analogWrite(p, 0); } return 0; },
+      ledcWrite: (a) => {
+        const ch = Number(a[0]);
+        const pin = this.ledcPinByChannel[ch];
+        if (!pin) return 0;
+        const max = this.ledcChannels[ch]?.max ?? 255;
+        const duty = Number(a[1]) || 0;
+        m.analogWrite(pin, Math.round((duty / max) * 255));
+        m.pwmRaw[pin] = duty; // override analogWrite's 0-255 pwmRaw with the true LEDC duty
+        return 0;
+      },
+      touchRead: (a) => { const p = vp(a[0], "read"); return m.touch[p] ?? 70; },
+      dacWrite: (a) => {
+        const p = vp(a[0], "write");
+        if (!p) return 0;
+        const v = Math.max(0, Math.min(255, Math.round(Number(a[1]) || 0)));
+        m.pwm[p] = v;
+        return 0;
+      },
+      esp_random: () => { this.espRandState = (this.espRandState * ESP_RAND_MUL + ESP_RAND_INC) >>> 0; return this.espRandState; },
       millis: () => m.millis(),
       micros: () => m.micros(),
       map: (a) => Math.round(((a[0] - a[1]) * (a[4] - a[3])) / (a[2] - a[1] || 1) + a[3]),
@@ -370,10 +446,63 @@ export class Interpreter {
       bitWrite: () => 0,
       bitSet: (a) => Number(a[0]) | (1 << Number(a[1])),
       constrainf: (a) => Math.max(a[1], Math.min(a[2], a[0])),
-      analogReadResolution: () => 0,
+      analogReadResolution: (a) => { m.adcMax = (2 ** Number(a[0])) - 1; return 0; },
       attachInterrupt: () => 0, detachInterrupt: () => 0, interrupts: () => 0, noInterrupts: () => 0,
     };
-    return map[name] ?? null;
+  }
+
+  private builtin(name: string): ((args: any[]) => any) | null {
+    return this.builtins[name] ?? null;
+  }
+
+  private validatePin(pin: string, op: "read" | "write"): string {
+    const p = this.profile;
+    const sets = this.pinSets;
+    if (!p || !sets) return pin;
+    // Hot-path guard: Uno (no input-only pins) + purely-numeric pin in profile.pins
+    // early-returns without the full known-pin check, keeping Uno run-loop arithmetic identical.
+    if (p.inputOnlyPins.length === 0 && sets.out.has(pin)) return pin;
+    if (op === "write" && p.inputOnlyPins.includes(pin)) {
+      this.machine.warn(`pin ${pin} is input-only`);
+      return ""; // caller no-ops the write on empty label
+    }
+    const known =
+      sets.out.has(pin) ||
+      sets.analog.has(pin) ||
+      sets.touch.has(pin) ||
+      sets.dac.has(pin) ||
+      sets.uart.has(pin);
+    if (!known) {
+      this.machine.warn(`invalid pin ${pin} for ${this.boardName}`);
+    }
+    return pin; // warn-and-pass-through: return value unchanged vs. today
+  }
+
+  private makeWiFi() {
+    let status = 0;
+    return {
+      begin: (_ssid?: any, _pass?: any) => { status = 3; return 0; },
+      status: () => status,
+      localIP: () => "192.168.4.2",
+      softAP: (_s?: any, _p?: any) => true,
+      softAPIP: () => "192.168.4.1",
+      RSSI: () => -55,
+      disconnect: () => { status = 6; return 0; },
+      macAddress: () => "24:0A:C4:00:00:01",
+    };
+  }
+
+  private makeBT() {
+    const m = this.machine;
+    return {
+      begin: (_name?: any) => true,
+      hasClient: () => false,
+      available: () => 0,
+      read: () => -1,
+      print: (x: any) => { m.serialPrint(String(x)); return 0; },
+      println: (x: any = "") => { m.serialPrintln(String(x)); return 0; },
+      connected: () => false,
+    };
   }
 
   private makeSerial() {

@@ -1,17 +1,22 @@
-import { ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import { resolveTxt } from "node:dns/promises";
 import { nanoid } from "nanoid";
 import { PrismaService } from "../../prisma/prisma.service";
 import { NotifyService } from "../../common/notify.service";
 import { can } from "../../domain/roles";
+import { DEFAULT_BRAND } from "../../common/tenant.service";
 import { ROOT_DOMAIN } from "../../domain/constants";
+import { hashPassword, generateTempPassword, tempPasswordExpiry } from "../../auth/password.util";
 import type { AuthUser } from "../../auth/auth-user.type";
 import type { BrandingInput, PoliciesInput } from "./dto";
+import { ReferralsService } from "../referrals/referrals.service";
 
 @Injectable()
 export class SchoolService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifier: NotifyService,
+    private readonly referrals: ReferralsService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -23,6 +28,26 @@ export class SchoolService {
     const target = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!target || target.tenantId !== actor.tenantId) throw new NotFoundException("NOT_FOUND");
     return target;
+  }
+
+  /**
+   * COPPA gate: an under-13 student may not be activated until a granted
+   * guardian ConsentRecord exists. Throws BadRequestException otherwise.
+   */
+  private async assertConsentForActivation(target: {
+    id: string;
+    birthYear: number | null;
+  }) {
+    if (target.birthYear == null) return; // age unknown (e.g. staff) — nothing to gate
+    const age = new Date().getFullYear() - target.birthYear;
+    if (age >= 13) return;
+    const consent = await this.prisma.consentRecord.findUnique({ where: { userId: target.id } });
+    if (consent?.status !== "granted") {
+      throw new BadRequestException({
+        message:
+          "This student is under 13 and is awaiting verifiable guardian consent. They can be activated once the guardian has confirmed consent.",
+      });
+    }
   }
 
   // =========================================================================
@@ -65,10 +90,12 @@ export class SchoolService {
       logoUrl?: string;
     };
 
+    // Fall back to the single shared DEFAULT_BRAND palette so /school/branding and
+    // the public /branding endpoint agree on the default colours.
     const initial = {
-      primary: branding.primary ?? "#6d28d9",
-      secondary: branding.secondary ?? "#0ea5e9",
-      accent: branding.accent ?? "#f59e0b",
+      primary: branding.primary ?? DEFAULT_BRAND.primary,
+      secondary: branding.secondary ?? DEFAULT_BRAND.secondary,
+      accent: branding.accent ?? DEFAULT_BRAND.accent,
       tagline: branding.tagline ?? "",
       logoUrl: branding.logoUrl ?? "",
     };
@@ -100,10 +127,13 @@ export class SchoolService {
       this.prisma.user.findMany({
         where: { tenantId: actor.tenantId, role: "student" },
         orderBy: [{ status: "asc" }, { displayName: "asc" }],
+        // Bound the roster; per-status totals come from the groupBy below.
+        take: 200,
       }),
       this.prisma.user.findMany({
         where: { tenantId: actor.tenantId, role: "teacher" },
         orderBy: { displayName: "asc" },
+        take: 200,
       }),
       this.prisma.user.groupBy({
         by: ["status"],
@@ -190,9 +220,12 @@ export class SchoolService {
 
   /** Approve a pending student. */
   async approveStudent(actor: AuthUser, userId: string) {
-    await this.getTenantTarget(actor, userId);
+    const target = await this.getTenantTarget(actor, userId);
+    await this.assertConsentForActivation(target);
 
     await this.prisma.user.update({ where: { id: userId }, data: { status: "active" } });
+
+    await this.referrals.settleIfActive(userId);
 
     await this.prisma.approvalRequest.upsert({
       where: { userId },
@@ -281,6 +314,49 @@ export class SchoolService {
   }
 
   /** Suspend a student. */
+  /**
+   * Reset a member's password (school admin). Same-tenant only, and limited to
+   * students & teachers — a school admin can't reset another admin's or a
+   * platform account's password. Returns a temp password when one is generated.
+   */
+  async resetMemberPassword(actor: AuthUser, userId: string, newPassword?: string) {
+    const target = await this.getTenantTarget(actor, userId);
+    if (target.role !== "student" && target.role !== "teacher") {
+      throw new ForbiddenException({ message: "You can only reset passwords for students and teachers." });
+    }
+
+    const generated = !newPassword;
+    const password = newPassword ?? generateTempPassword();
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        passwordHash: await hashPassword(password),
+        // Force a change on next login and revoke every existing session.
+        mustChangePassword: true,
+        tempPasswordExpiresAt: tempPasswordExpiry(),
+        tokenVersion: { increment: 1 },
+      },
+    });
+
+    await this.notifier.notify({
+      userId,
+      type: "account",
+      title: "Your password was reset",
+      body: "Your school administrator reset your password. Use the new password you were given to sign in, then change it from Settings.",
+    });
+    await this.prisma.auditLog.create({
+      data: {
+        tenantId: actor.tenantId,
+        actorId: actor.id,
+        action: "user.password_reset",
+        targetType: "User",
+        targetId: userId,
+      },
+    });
+
+    return { ok: true, ...(generated ? { temporaryPassword: password } : {}) };
+  }
+
   async suspendStudent(actor: AuthUser, userId: string) {
     await this.getTenantTarget(actor, userId);
 
@@ -311,6 +387,10 @@ export class SchoolService {
     await this.getTenantTarget(actor, userId);
 
     await this.prisma.user.update({ where: { id: userId }, data: { status: "active" } });
+
+    // Safety net: settles a referral that was still pending when this student
+    // was suspended. A no-op if the referral already settled or never existed.
+    await this.referrals.settleIfActive(userId);
 
     await this.notifier.notify({
       userId,
@@ -407,6 +487,9 @@ export class SchoolService {
 
     const existing = await this.prisma.domain.findUnique({ where: { hostname: normalized } });
     if (existing) {
+      // A hostname already claimed (and especially already verified) by another
+      // tenant can never be re-registered — otherwise registration order alone
+      // would let one school squat on another's hostname.
       throw new ForbiddenException("That domain is already registered.");
     }
 
@@ -437,10 +520,43 @@ export class SchoolService {
     return { ok: true, domain };
   }
 
-  /** Mark a custom domain as verified (TXT confirmed) and queue SSL. */
+  /**
+   * Verify a custom domain by actually performing a DNS TXT lookup for the
+   * token we generated. Ownership can ONLY be proven by publishing the TXT
+   * record — we never trust the client. Until the record matches, the domain
+   * stays verified:false (so getActiveTenant will not resolve it).
+   */
   async verifyDomain(actor: AuthUser, domainId: string) {
     const domain = await this.prisma.domain.findUnique({ where: { id: domainId } });
     if (!domain || domain.tenantId !== actor.tenantId) throw new NotFoundException("NOT_FOUND");
+    if (!domain.txtToken) throw new BadRequestException("This domain has no verification token.");
+
+    // Defence in depth: never let a hostname already verified by another tenant
+    // be (re-)verified here.
+    const conflict = await this.prisma.domain.findFirst({
+      where: { hostname: domain.hostname, verified: true, NOT: { id: domain.id } },
+    });
+    if (conflict) {
+      throw new ForbiddenException("This domain is already verified by another organisation.");
+    }
+
+    // Real DNS TXT lookup. resolveTxt returns string chunks per record, which we
+    // join before comparing against the stored token.
+    let records: string[][] = [];
+    try {
+      records = await resolveTxt(domain.hostname);
+    } catch {
+      // NXDOMAIN / no TXT / DNS error all mean "not yet verifiable".
+      records = [];
+    }
+    const flattened = records.map((chunks) => chunks.join(""));
+    const matched = flattened.some((value) => value.trim() === domain.txtToken);
+
+    if (!matched) {
+      throw new BadRequestException(
+        `Could not find the verification TXT record on ${domain.hostname}. Add a TXT record with the value "${domain.txtToken}" and try again (DNS changes can take a few minutes).`,
+      );
+    }
 
     const updated = await this.prisma.domain.update({
       where: { id: domainId },

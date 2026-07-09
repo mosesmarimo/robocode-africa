@@ -10,6 +10,7 @@ import { StatCard } from "@/components/app/stat-card";
 import { Separator } from "@/components/ui/separator";
 import { initials, formatRelative } from "@/lib/utils";
 import { SuspendUserButton, ReinstateUserButton } from "@/components/admin/admin-buttons";
+import { ResetPasswordButton } from "@/components/admin/reset-password-button";
 
 export const metadata = { title: "Users — Admin" };
 
@@ -85,6 +86,7 @@ export default async function UsersPage({
           <input
             name="q"
             defaultValue={q ?? ""}
+            aria-label="Search users"
             placeholder="Search by name or email…"
             className="flex h-10 w-full rounded-lg border border-input bg-background pl-9 pr-3.5 py-2 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:border-ring"
           />
@@ -92,6 +94,7 @@ export default async function UsersPage({
         <select
           name="role"
           defaultValue={role ?? ""}
+          aria-label="Filter by role"
           className="h-10 rounded-lg border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <option value="">All roles</option>
@@ -102,6 +105,7 @@ export default async function UsersPage({
         <select
           name="status"
           defaultValue={status ?? ""}
+          aria-label="Filter by status"
           className="h-10 rounded-lg border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <option value="">All statuses</option>
@@ -168,6 +172,7 @@ export default async function UsersPage({
                     </div>
                   </div>
                   <div className="flex shrink-0 flex-wrap gap-2">
+                    <ResetPasswordButton scope="admin" userId={u.id} name={u.displayName} />
                     {u.status === "active" && <SuspendUserButton userId={u.id} />}
                     {(u.status === "suspended" || u.status === "rejected") && (
                       <ReinstateUserButton userId={u.id} />

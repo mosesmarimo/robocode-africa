@@ -12,7 +12,16 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Generated/self-hosted runtimes copied into public/ for browser sandboxes.
+    "public/sandbox/pyodide/**",
+    "public/sandbox/sql-wasm.js",
   ]),
+  {
+    rules: {
+      "react-hooks/immutability": "off",
+      "react-hooks/set-state-in-effect": "off",
+    },
+  },
 ]);
 
 export default eslintConfig;

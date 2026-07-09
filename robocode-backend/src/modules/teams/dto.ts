@@ -7,8 +7,8 @@ import { z } from "zod";
  * coerces shapes here.
  */
 export const createTeamSchema = z.object({
-  name: z.string(),
-  description: z.string().optional().default(""),
+  name: z.string().trim().min(2, "Team name must be at least 2 characters.").max(60),
+  description: z.string().max(500).optional().default(""),
 });
 export type CreateTeamInput = z.infer<typeof createTeamSchema>;
 
@@ -17,6 +17,6 @@ export type CreateTeamInput = z.infer<typeof createTeamSchema>;
  * action — `teamId` comes from the route param, so only the body is here.
  */
 export const postMessageSchema = z.object({
-  body: z.string(),
+  body: z.string().trim().min(1, "Message cannot be empty.").max(500, "Message too long (max 500 characters)."),
 });
 export type PostMessageInput = z.infer<typeof postMessageSchema>;

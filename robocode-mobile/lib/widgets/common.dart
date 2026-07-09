@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
 import '../api/api_client.dart';
 import '../theme.dart';
@@ -40,6 +41,51 @@ class AsyncView<T> extends StatelessWidget {
         }
         return builder(context, snap.data as T);
       },
+    );
+  }
+}
+
+/// Daily-streak flame (🔥 + day count), meant for a [BrandHeader]'s `trailing`
+/// slot — a translucent white pill readable on the brand gradient. Callers
+/// should only render this once the streak is worth celebrating (see
+/// `AppUser.hasVisibleStreak`).
+///
+/// When [embers] > 0, a small shield indicator (🛡 + count) renders alongside
+/// the flame — the forgiving-streak "embers" that absorb a missed day. When
+/// [frozen] is true, a tiny snowflake renders too, for an active milestone
+/// freeze. Both are kept subtle: same pill, smaller/dimmer text.
+class StreakFlame extends StatelessWidget {
+  final int count;
+  final int embers;
+  final bool frozen;
+  const StreakFlame({super.key, required this.count, this.embers = 0, this.frozen = false});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.18),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text('🔥', style: TextStyle(fontSize: 14)),
+          const SizedBox(width: 4),
+          Text('$count', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+          if (embers > 0) ...[
+            const SizedBox(width: 6),
+            Text('🛡', style: TextStyle(fontSize: 11, color: Colors.white.withValues(alpha: 0.85))),
+            const SizedBox(width: 2),
+            Text('$embers', style: TextStyle(color: Colors.white.withValues(alpha: 0.85), fontWeight: FontWeight.w600, fontSize: 11)),
+          ],
+          if (frozen) ...[
+            const SizedBox(width: 4),
+            Text('❄', style: TextStyle(fontSize: 11, color: Colors.white.withValues(alpha: 0.85))),
+          ],
+        ],
+      ),
     );
   }
 }
@@ -140,6 +186,87 @@ class SeedAvatar extends StatelessWidget {
       child: Text(initials, style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: size * 0.36)),
     );
   }
+}
+
+/// Bold section heading used above lists/cards across screens.
+class SectionTitle extends StatelessWidget {
+  final String title;
+  const SectionTitle(this.title, {super.key});
+  @override
+  Widget build(BuildContext context) =>
+      Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold));
+}
+
+/// A muted card holding a short hint/empty message inline within a list.
+class HintCard extends StatelessWidget {
+  final String text;
+  const HintCard(this.text, {super.key});
+  @override
+  Widget build(BuildContext context) => Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Text(text, style: TextStyle(color: Theme.of(context).hintColor)),
+        ),
+      );
+}
+
+/// A small icon + label pill. When [color] is null it uses a muted hint tone
+/// (no border); when set it tints fill, border and text with that colour.
+class MiniChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color? color;
+  const MiniChip({super.key, required this.icon, required this.label, this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = color ?? Theme.of(context).hintColor;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: c.withValues(alpha: color == null ? 0.08 : 0.10),
+        borderRadius: BorderRadius.circular(8),
+        border: color == null ? null : Border.all(color: c.withValues(alpha: 0.20)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: c),
+          const SizedBox(width: 4),
+          Text(label,
+              style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: color == null ? FontWeight.normal : FontWeight.w600,
+                  color: c)),
+        ],
+      ),
+    );
+  }
+}
+
+/// Format an ISO-8601 due-date string as its local calendar date
+/// (`YYYY-MM-DD`). `dueAt` is sent/stored as UTC midnight of the intended
+/// calendar day (see `assignments_screen._submit`); converting to local
+/// before reading the date avoids the naive `due.split('T').first` showing
+/// every date a day early for viewers ahead of UTC (e.g. Harare, UTC+2).
+String dueDateLabel(String iso) {
+  final local = DateTime.parse(iso).toLocal();
+  String two(int n) => n.toString().padLeft(2, '0');
+  return '${local.year}-${two(local.month)}-${two(local.day)}';
+}
+
+/// Shared "just now / Nm ago / Nh ago / Nd ago" relative-time ladder, falling
+/// back to an absolute date once older than a week.
+String relativeTime(DateTime dt, {bool withTime = false}) {
+  final local = dt.toLocal();
+  final diff = DateTime.now().difference(local);
+  if (diff.inSeconds < 60) return 'just now';
+  if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+  if (diff.inHours < 24) return '${diff.inHours}h ago';
+  if (diff.inDays < 7) return '${diff.inDays}d ago';
+  return withTime
+      ? DateFormat.yMMMd().add_jm().format(local)
+      : DateFormat.yMMMd().format(local);
 }
 
 /// Empty-state placeholder.

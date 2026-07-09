@@ -1,10 +1,16 @@
 import { Zap } from "lucide-react";
 import { levelProgress } from "@/lib/domain/constants";
 
+/** Small XP/level indicator for the app header — a level badge, RoboPoints
+ * total, and a thin progress bar toward the next level (derived from
+ * `levelProgress`'s cumulative-band curve, see lib/domain/constants.ts). */
 export function PointsPill({ points }: { points: number }) {
-  const { level, pct } = levelProgress(points);
+  const { level, into, span, pct } = levelProgress(points);
   return (
-    <div className="hidden items-center gap-2.5 rounded-full border border-border bg-card px-3 py-1.5 sm:flex">
+    <div
+      className="hidden items-center gap-2.5 rounded-full border border-border bg-card px-3 py-1.5 sm:flex"
+      title={`Level ${level} — ${into}/${span} XP to level ${level + 1}`}
+    >
       <span className="grid size-6 place-items-center rounded-full bg-brand-gradient text-[11px] font-bold text-white">
         {level}
       </span>

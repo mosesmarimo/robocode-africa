@@ -1,24 +1,23 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
-import { ArrowLeft, Play, Square, Save, Share2, Undo2, Redo2, Loader2, Maximize2, Minimize2 } from "lucide-react";
+import { unstable_rethrow } from "next/navigation";
+import { Play, Square, Save, Share2, Undo2, Redo2, Loader2, Maximize2, Minimize2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { BrandLogo } from "@/components/brand-logo";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useStudio } from "@/lib/studio/store";
 import { BOARD_LIST, type BoardId } from "@/lib/domain/boards";
-import { saveProject, createProject } from "@/lib/studio/actions";
+import { saveProject, createProject, shareProject } from "@/lib/studio/actions";
+import { getReferralStats } from "@/lib/referrals/actions";
 
 export function Toolbar({ projectId, onRun, onStop }: { projectId: string; onRun: () => void; onStop: () => void }) {
-  const title = useStudio((s) => s.title);
-  const setTitle = useStudio((s) => s.setTitle);
   const board = useStudio((s) => s.board);
   const setBoard = useStudio((s) => s.setBoard);
   const running = useStudio((s) => s.running);
   const dirty = useStudio((s) => s.dirty);
   const [saving, setSaving] = React.useState(false);
+  const [sharing, setSharing] = React.useState(false);
   const [fullscreen, setFullscreen] = React.useState(false);
 
   React.useEffect(() => {
@@ -38,30 +37,54 @@ export function Toolbar({ projectId, onRun, onStop }: { projectId: string; onRun
     try {
       const files = st.files.map((f) => ({ name: f.name, language: f.language, content: f.content }));
       if (projectId === "new") {
-        await createProject({ title: st.title, board: st.board, diagram: st.toDiagram(), files });
+        await createProject({ title: st.title, kind: "robotics", board: st.board, diagram: st.toDiagram(), files });
         return; // redirects
       }
-      await saveProject({ projectId, title: st.title, board: st.board, diagram: st.toDiagram(), files });
+      await saveProject({ projectId, title: st.title, kind: "robotics", board: st.board, diagram: st.toDiagram(), files });
       st.markSaved();
       toast.success("Project saved");
-    } catch {
+    } catch (e) {
+      // createProject() ends in redirect(), which throws a NEXT_REDIRECT
+      // control-flow signal — let Next handle it rather than treating it as a
+      // save failure.
+      unstable_rethrow(e);
       toast.error("Couldn't save — please sign in as the owner.");
     } finally {
       setSaving(false);
     }
   }
 
+  async function handleShare() {
+    if (projectId === "new") {
+      toast.error("Save your project first, then share it.");
+      return;
+    }
+    setSharing(true);
+    try {
+      const { shareId } = await shareProject(projectId);
+      // Tag the link with the sharer's own referral code so every share is
+      // also an invite — best-effort: a failure here still yields a working
+      // (untagged) share link rather than blocking the share.
+      let ref: string | null = null;
+      try {
+        ref = (await getReferralStats()).code;
+      } catch {
+        /* no ref tag — the share link still works */
+      }
+      const url = ref
+        ? `${window.location.origin}/p/${shareId}?ref=${encodeURIComponent(ref)}`
+        : `${window.location.origin}/p/${shareId}`;
+      await navigator.clipboard?.writeText(url);
+      toast.success("Public share link copied", { description: url });
+    } catch {
+      toast.error("Couldn't create a share link — please sign in as the owner.");
+    } finally {
+      setSharing(false);
+    }
+  }
+
   return (
-    <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border bg-card px-3">
-      <Button variant="ghost" size="icon-sm" asChild>
-        <Link href="/app/projects" aria-label="Back to projects"><ArrowLeft className="size-4" /></Link>
-      </Button>
-      <BrandLogo href="/app" showName={false} className="mr-0.5" />
-      <input
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
-        className="w-44 rounded-md bg-transparent px-2 py-1 text-sm font-semibold outline-none hover:bg-muted focus:bg-muted sm:w-64"
-      />
+    <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border bg-card px-3">
       <div className="hidden sm:block">
         <Select value={board} onValueChange={(v) => setBoard(v as BoardId)}>
           <SelectTrigger className="h-9 w-44"><SelectValue /></SelectTrigger>
@@ -88,11 +111,9 @@ export function Toolbar({ projectId, onRun, onStop }: { projectId: string; onRun
       <Button variant="ghost" size="icon-sm" onClick={toggleFullscreen} aria-label="Toggle fullscreen" title="Fullscreen">
         {fullscreen ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
       </Button>
-      <Button
-        variant="outline"
-        onClick={() => { navigator.clipboard?.writeText(window.location.href); toast.success("Share link copied"); }}
-      >
-        <Share2 className="size-4" /> <span className="hidden sm:inline">Share</span>
+      <Button variant="outline" onClick={handleShare} disabled={sharing} title="Create a public read-only link">
+        {sharing ? <Loader2 className="size-4 animate-spin" /> : <Share2 className="size-4" />}
+        <span className="hidden sm:inline">Share</span>
       </Button>
       <Button variant={dirty ? "default" : "outline"} onClick={handleSave} disabled={saving}>
         {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}

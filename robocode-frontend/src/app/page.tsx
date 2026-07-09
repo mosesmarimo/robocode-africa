@@ -11,19 +11,18 @@ import {
   Code2,
   CircuitBoard,
   Users,
-  Sparkles,
   CheckCircle2,
   Star,
   Globe,
   GraduationCap,
   Rocket,
-  Play,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { SiteHeader } from "@/components/marketing/site-header";
 import { SiteFooter } from "@/components/marketing/site-footer";
+import { HeroCarousel } from "@/components/marketing/hero-carousel";
 
 /* ─── Hero mock visual ─────────────────────────────────────────────────── */
 function StudioMockVisual() {
@@ -232,60 +231,35 @@ export default function HomePage() {
       <SiteHeader />
       <main className="flex-1">
 
-        {/* ── Hero ── */}
-        <section className="relative overflow-hidden bg-grid px-6 pb-20 pt-24 text-center">
-          {/* Radial glow */}
-          <div className="pointer-events-none absolute -top-32 left-1/2 h-[40rem] w-[40rem] -translate-x-1/2 rounded-full bg-brand-gradient opacity-15 blur-[120px]" />
+        {/* ── Hero carousel ── */}
+        <HeroCarousel />
 
-          <div className="relative z-10 mx-auto max-w-4xl">
-            {/* Trust pill */}
-            <span className="mb-6 inline-flex items-center gap-2 rounded-full border border-border bg-card/70 px-4 py-1.5 text-sm font-medium text-muted-foreground backdrop-blur">
-              <Sparkles className="size-4 text-primary" />
-              Africa&apos;s #1 safe STEM platform for schools
-            </span>
-
-            <h1 className="font-display text-5xl font-bold leading-[1.05] tracking-tight sm:text-6xl lg:text-7xl">
-              Build real robots{" "}
-              <span className="text-gradient">in the browser.</span>
-            </h1>
-
-            <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-muted-foreground">
-              RoboCode.Africa is the safe, gamified studio where primary and high-school students wire up
-              sensors, write code, and watch their circuits come alive in an interactive simulator —
-              no hardware, no hassle.
-            </p>
-
-            <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
-              <Button size="lg" variant="gradient" asChild>
-                <Link href="/signup">
-                  Get started free <ArrowRight className="size-4" />
-                </Link>
-              </Button>
-              <Button size="lg" variant="outline" asChild>
-                <Link href="/studio/new">
-                  <Play className="size-4" /> Open Studio
-                </Link>
-              </Button>
+        {/* ── Product preview ── */}
+        <section className="px-6 py-20">
+          <div className="mx-auto max-w-7xl">
+            <div className="mb-10 text-center">
+              <Badge variant="secondary" className="mb-3">See it in action</Badge>
+              <h2 className="font-display text-3xl font-bold sm:text-4xl">
+                The whole lab, <span className="text-gradient">in one tab</span>
+              </h2>
+              <p className="mx-auto mt-3 max-w-xl text-muted-foreground">
+                Drag components onto the board, write code in the built-in editor, and hit Run — your
+                circuit comes alive instantly.
+              </p>
+              <div className="mt-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs font-medium text-muted-foreground">
+                {[
+                  "Approved & moderated",
+                  "Works on low-end devices",
+                  "COPPA / GDPR-K aligned",
+                  "Free for students",
+                ].map((t) => (
+                  <span key={t} className="flex items-center gap-1.5">
+                    <CheckCircle2 className="size-3.5 text-success" />
+                    {t}
+                  </span>
+                ))}
+              </div>
             </div>
-
-            {/* Trust strip */}
-            <div className="mt-10 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs font-medium text-muted-foreground">
-              {[
-                "Approved & moderated",
-                "Works on low-end devices",
-                "COPPA / GDPR-K aligned",
-                "Free for students",
-              ].map((t) => (
-                <span key={t} className="flex items-center gap-1.5">
-                  <CheckCircle2 className="size-3.5 text-success" />
-                  {t}
-                </span>
-              ))}
-            </div>
-          </div>
-
-          {/* Hero visual */}
-          <div className="relative z-10 mx-auto mt-16 max-w-2xl px-4">
             <StudioMockVisual />
           </div>
         </section>

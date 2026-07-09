@@ -10,6 +10,8 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Progress } from "@/components/ui/progress";
 import { StatCard } from "@/components/app/stat-card";
 import { initials, formatRelative } from "@/lib/utils";
+import { Wall } from "@/components/social/wall";
+import type { Wall as WallType } from "@/lib/social/types";
 
 export const metadata = { title: "My Profile" };
 
@@ -32,6 +34,8 @@ interface ProfileData {
     displayName: string;
     role: string;
     roboPoints: number;
+    tagline?: string | null;
+    bio?: string | null;
   };
   schoolName: string | null;
   badges: UserBadgeItem[];
@@ -41,10 +45,15 @@ interface ProfileData {
 }
 
 export default async function ProfilePage() {
-  await getPageUser();
+  const me = await getPageUser();
 
-  const { user, schoolName, badges: userBadges, projects, passedCount, progress } =
-    await apiGet<ProfileData>("/account/profile");
+  const [
+    { user, schoolName, badges: userBadges, projects, passedCount, progress },
+    wall,
+  ] = await Promise.all([
+    apiGet<ProfileData>("/account/profile"),
+    apiGet<WallType>(`/social/posts/wall/user/${me.id}`),
+  ]);
 
   const { level, into, span, pct } = progress;
 
@@ -60,6 +69,7 @@ export default async function ProfilePage() {
           </Avatar>
           <div className="flex-1">
             <h1 className="font-display text-3xl font-bold sm:text-4xl">{user.displayName}</h1>
+            {user.tagline && <p className="mt-1 text-white/85">{user.tagline}</p>}
             <div className="mt-1 flex flex-wrap items-center gap-2">
               <span className="rounded-full bg-white/20 px-3 py-0.5 text-sm font-medium">
                 {ROLE_LABELS[user.role as Role] ?? user.role}
@@ -78,11 +88,25 @@ export default async function ProfilePage() {
               </div>
             </div>
           </div>
-          <Button variant="secondary" size="sm" asChild className="bg-white/20 text-white hover:bg-white/30 border-white/20 border">
-            <Link href="/app/settings">Edit profile</Link>
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="secondary" size="sm" asChild className="bg-white/20 text-white hover:bg-white/30 border-white/20 border">
+              <Link href={`/app/u/${me.id}`}>View public profile</Link>
+            </Button>
+            <Button variant="secondary" size="sm" asChild className="bg-white/20 text-white hover:bg-white/30 border-white/20 border">
+              <Link href="/app/settings">Edit profile</Link>
+            </Button>
+          </div>
         </div>
       </section>
+
+      {/* Bio */}
+      {user.bio && (
+        <Card>
+          <CardContent className="p-6">
+            <p className="whitespace-pre-wrap text-sm text-muted-foreground">{user.bio}</p>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Stats row */}
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -194,6 +218,19 @@ export default async function ProfilePage() {
           </p>
         </CardContent>
       </Card>
+
+      {/* My updates */}
+      <section>
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+          My updates
+        </h2>
+        <Wall
+          targetType="user"
+          targetId={me.id}
+          initial={{ ...wall, canPost: true }}
+          currentUser={{ id: me.id, displayName: me.displayName, avatarSeed: me.avatarSeed }}
+        />
+      </section>
     </div>
   );
 }

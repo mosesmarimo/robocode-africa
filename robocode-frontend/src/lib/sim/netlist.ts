@@ -35,6 +35,19 @@ function breadboardGroups(partId: string): string[][] {
   return groups;
 }
 
+// Broad power/reference-pin matcher shared by both sim engines (InterpreterEngine +
+// Rp2040Engine) so "first non-power control pin" logic treats every board's power/ground/
+// reference rail consistently. Covers AVR/ESP32 rails (GND/5V/3V3/VIN/VCC/VDD/VSS) PLUS the
+// Pico-specific ones (VBUS/VSYS/AGND/ADC_VREF/EN/RUN/RESET/IOREF/3V3_EN/AREF).
+const POWER_RE = /^(GND|AGND|5V|3V3|3\.3V|VIN|VCC|VDD|VSS|VBUS|VSYS|AREF|ADC_VREF|EN|RUN|RESET|IOREF|3V3_EN)([.\d]|$)?/i;
+export const isPowerPin = (p: string) => POWER_RE.test(p);
+
+// Narrower "positive supply rail" matcher (excludes GND/AGND/reference/enable pins) used to
+// detect active-high button/switch wiring: a pin net that touches one of these is pulled to
+// the positive rail, not to ground.
+const SUPPLY_RE = /^(5V|3V3|3\.3V|VIN|VCC|VBUS|VSYS)/i;
+export const isSupplyPin = (p: string) => SUPPLY_RE.test(p);
+
 export interface ResolvedNet {
   /** for a given "partId:pin" returns the connected board pin label (e.g. "13", "A0", "GND.1") or null */
   boardPinOf: (ref: string) => string | null;

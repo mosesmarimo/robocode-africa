@@ -1,0 +1,20 @@
+# systemd USER unit for the RoboCode Next.js frontend (port 3100).
+# Lives at ~/.config/systemd/user/robocode-frontend.service for the robocode user
+# (linger enabled). Manage with: systemctl --user {start,restart,status} robocode-frontend
+[Unit]
+Description=robocode frontend (Next.js) on :3100
+After=network-online.target robocode-backend.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/srv/robocode/frontend
+EnvironmentFile=/srv/robocode/frontend/.env
+Environment=NODE_ENV=production
+Environment=PORT=3100
+ExecStart=/bin/bash -lc 'export NVM_DIR=/srv/robocode/.nvm; . "$NVM_DIR/nvm.sh"; exec node_modules/.bin/next start -p 3100'
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

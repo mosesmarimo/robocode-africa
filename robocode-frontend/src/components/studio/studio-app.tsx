@@ -12,7 +12,11 @@ import { BlockEditor } from "@/components/studio/block-editor";
 import { SerialMonitor } from "@/components/studio/serial-monitor";
 import { FileTabs } from "@/components/studio/file-tabs";
 import { Description } from "@/components/studio/description";
+import { CodingStudio } from "@/components/studio/coding-studio";
+import { StudioModeRail, type StudioMode } from "@/components/studio/studio-mode-rail";
+import { StudioHeader } from "@/components/studio/studio-header";
 import { useSimulation } from "@/lib/sim/use-simulation";
+import type { CodeFile } from "@/lib/studio/coding";
 import { cn } from "@/lib/utils";
 
 type EditorMode = "code" | "blocks";
@@ -23,6 +27,12 @@ export type StudioInitial = {
   title: string;
   diagram: Diagram;
   files: StudioFile[];
+  /** Project kind — "coding" opens the Coding Studio by default. */
+  kind?: "robotics" | "coding";
+  /** For coding projects: the saved source files to load into the Coding Studio. */
+  codingFiles?: CodeFile[];
+  /** For coding projects: persisted explanations per file, with whether they match current content. */
+  codingExplanations?: Record<string, { text: string; current: boolean }>;
 };
 
 function TabButton({ active, onClick, icon: Icon, label }: { active: boolean; onClick: () => void; icon: typeof Cpu; label: string }) {
@@ -46,6 +56,7 @@ export function StudioApp({ initial }: { initial: StudioInitial }) {
   const [mode, setMode] = React.useState<EditorMode>("code");
   const [codeOpen, setCodeOpen] = React.useState(true);
   const [simTab, setSimTab] = React.useState<SimTab>("simulation");
+  const [studioMode, setStudioMode] = React.useState<StudioMode>(initial.kind === "coding" ? "coding" : "robotics");
 
   React.useEffect(() => {
     load(initial);
@@ -56,8 +67,16 @@ export function StudioApp({ initial }: { initial: StudioInitial }) {
 
   return (
     <div className="flex h-screen flex-col bg-background">
-      <Toolbar projectId={initial.projectId} onRun={start} onStop={stop} />
+      <StudioHeader projectId={initial.projectId} />
       <div className="flex min-h-0 flex-1">
+        <StudioModeRail mode={studioMode} onChange={setStudioMode} />
+        <div className="flex min-w-0 flex-1 flex-col">
+        {studioMode === "coding" ? (
+          <CodingStudio projectId={initial.projectId} projectKind={initial.kind ?? "robotics"} initialFiles={initial.codingFiles} initialExplanations={initial.codingExplanations} />
+        ) : (
+          <>
+            <Toolbar projectId={initial.projectId} onRun={start} onStop={stop} />
+            <div className="flex min-h-0 flex-1">
         {/* Left: Simulation / Description */}
         <section className="flex min-w-0 flex-1 flex-col">
           <div className="flex items-center gap-1 border-b border-border bg-card px-2 py-1">
@@ -117,6 +136,10 @@ export function StudioApp({ initial }: { initial: StudioInitial }) {
             </div>
           </aside>
         )}
+            </div>
+          </>
+        )}
+        </div>
       </div>
     </div>
   );

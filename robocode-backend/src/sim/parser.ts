@@ -1,6 +1,5 @@
 import { tokenize, preprocess, type Token } from "./lexer";
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 export type Node = any;
 
 export class ParseError extends Error {
@@ -18,7 +17,7 @@ const TYPE_KEYWORDS = new Set([
 ]);
 const CLASS_TYPES = new Set([
   "Servo", "LiquidCrystal", "LiquidCrystal_I2C", "Adafruit_SSD1306", "Stepper", "SoftwareSerial",
-  "Adafruit_NeoPixel",
+  "Adafruit_NeoPixel", "BluetoothSerial",
 ]);
 
 const ASSIGN_OPS = new Set(["=", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "<<=", ">>="]);

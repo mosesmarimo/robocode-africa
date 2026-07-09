@@ -67,6 +67,7 @@ export function AddComponentMenu() {
               ref={inputRef}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              aria-label="Search components"
               placeholder="Search components…"
               className="h-9 w-full rounded-lg border border-white/10 bg-white/5 pl-9 pr-3 text-sm text-white placeholder:text-white/40 outline-none focus:border-primary/60 focus:ring-2 focus:ring-primary/30"
             />

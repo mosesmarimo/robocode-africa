@@ -60,9 +60,9 @@ export const COMPONENTS: ComponentDef[] = [
   { id: "relay", name: "Relay Module", category: "output", tag: "wokwi-ks2e-m-dc5", simRole: "relay", description: "Electromechanical relay to switch larger loads.", keywords: ["switch", "mains"] },
 
   // Displays
-  { id: "lcd1602", name: "LCD 16x2", category: "display", tag: "wokwi-lcd1602", simRole: "lcd", description: "16x2 character LCD (HD44780).", defaultProps: { pins: "i2c" }, keywords: ["screen", "text", "hd44780"] },
-  { id: "lcd2004", name: "LCD 20x4", category: "display", tag: "wokwi-lcd2004", simRole: "lcd", description: "20x4 character LCD.", defaultProps: { pins: "i2c" }, keywords: ["screen", "text"] },
-  { id: "ssd1306", name: "OLED 0.96\"", category: "display", tag: "wokwi-ssd1306", simRole: "oled", description: "128x64 OLED display (SSD1306).", keywords: ["oled", "graphics", "screen"] },
+  { id: "lcd1602", name: "LCD 16x2", category: "display", tag: "wokwi-lcd1602", simRole: "lcd", description: "16x2 character LCD (HD44780).", defaultProps: { pins: "i2c", address: "0x27" }, keywords: ["screen", "text", "hd44780"] },
+  { id: "lcd2004", name: "LCD 20x4", category: "display", tag: "wokwi-lcd2004", simRole: "lcd", description: "20x4 character LCD.", defaultProps: { pins: "i2c", address: "0x27" }, keywords: ["screen", "text"] },
+  { id: "ssd1306", name: "OLED 0.96\"", category: "display", tag: "wokwi-ssd1306", simRole: "oled", description: "128x64 OLED display (SSD1306).", defaultProps: { address: "0x3C" }, keywords: ["oled", "graphics", "screen"] },
   { id: "7segment", name: "7-Segment Display", category: "display", tag: "wokwi-7segment", simRole: "7seg", description: "Single-digit 7-segment display.", keywords: ["digit", "number"] },
   { id: "ili9341", name: "TFT 2.4\" (ILI9341)", category: "display", tag: "wokwi-ili9341", simRole: "tft", description: "Colour TFT touch display.", keywords: ["color", "tft", "graphics"] },
 
@@ -104,6 +104,9 @@ export const COMPONENTS: ComponentDef[] = [
 export const COMPONENT_BY_ID: Record<string, ComponentDef> = Object.fromEntries(
   COMPONENTS.map((c) => [c.id, c]),
 );
+
+/** Standard factory I2C addresses for the two display kinds Studio simulates. */
+export const DEFAULT_I2C_ADDRESS: Record<"lcd" | "oled", number> = { lcd: 0x27, oled: 0x3c };
 
 export function searchComponents(query: string): ComponentDef[] {
   const q = query.trim().toLowerCase();

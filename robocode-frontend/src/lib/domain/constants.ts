@@ -63,4 +63,10 @@ export function levelProgress(points: number): { level: number; into: number; sp
 }
 
 export const ROOT_DOMAIN = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? "localhost:3000";
-export const APP_NAME = process.env.NEXT_PUBLIC_APP_NAME ?? "RoboCode.Africa";
+export const APP_NAME = process.env.NEXT_PUBLIC_APP_NAME ?? "RoboCode";
+
+/** Absolute origin of the main app (protocol + ROOT_DOMAIN) — used to build
+ * cross-domain links from a published `*.robocode.studio`/`*.robocode.africa`
+ * project site (served on its own origin) back to the main app, e.g. the
+ * "Built with RoboCode — make your own" footer CTA's `/join` link. */
+export const ROOT_ORIGIN = `${ROOT_DOMAIN.startsWith("localhost") || ROOT_DOMAIN.startsWith("127.0.0.1") ? "http" : "https"}://${ROOT_DOMAIN}`;

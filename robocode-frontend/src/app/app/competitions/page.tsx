@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { StatCard } from "@/components/app/stat-card";
 import { TRACK_LABELS } from "@/lib/domain/constants";
+import { formatDay } from "@/lib/utils";
 
 export const metadata = { title: "Competitions" };
 
@@ -45,7 +46,7 @@ const SCOPE_ICON: Record<string, React.ElementType> = {
 function formatDateRange(startsAt: string | null, endsAt: string | null): string {
   if (!startsAt && !endsAt) return "Dates TBC";
   const fmt = (d: string) =>
-    new Date(d).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+    formatDay(d, { day: "numeric", month: "short", year: "numeric" });
   if (startsAt && endsAt) return `${fmt(startsAt)} – ${fmt(endsAt)}`;
   if (startsAt) return `Starts ${fmt(startsAt)}`;
   if (endsAt) return `Ends ${fmt(endsAt)}`;

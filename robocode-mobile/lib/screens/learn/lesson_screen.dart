@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../api/api_client.dart';
+import '../../models/content.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
+import '../../widgets/rich_content.dart';
 
 /// A single lesson: rendered body, completion action and prev/next navigation.
 class LessonScreen extends StatefulWidget {
@@ -52,6 +54,12 @@ class _LessonScreenState extends State<LessonScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(e.message)));
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Could not reach the server. Check your connection.')),
+      );
     } finally {
       if (mounted) setState(() => _completing = false);
     }
@@ -75,7 +83,7 @@ class _LessonScreenState extends State<LessonScreen> {
           final est = (lesson['estMinutes'] as num?)?.toInt();
           final lessonId = lesson['id']?.toString();
           final courseId = course['id']?.toString();
-          final body = lesson['body']?.toString() ?? '';
+          final contentBlocks = parseBlocks(lesson['body']);
 
           return Column(
             children: [
@@ -152,7 +160,12 @@ class _LessonScreenState extends State<LessonScreen> {
                     ),
                     const SizedBox(height: 8),
                     const Divider(height: 28),
-                    ..._renderBody(context, body),
+                    contentBlocks.isEmpty
+                        ? const EmptyState(
+                            icon: Icons.article_outlined,
+                            message: 'This lesson has no content yet.',
+                          )
+                        : RichContent(blocks: contentBlocks, lessonId: lessonId),
                   ],
                 ),
               ),
@@ -170,72 +183,6 @@ class _LessonScreenState extends State<LessonScreen> {
         },
       ),
     );
-  }
-
-  /// Render the markdown-ish body as readable paragraphs. Splits on blank lines
-  /// and gives light treatment to heading-style and bullet lines.
-  List<Widget> _renderBody(BuildContext context, String body) {
-    if (body.trim().isEmpty) {
-      return const [
-        EmptyState(
-          icon: Icons.article_outlined,
-          message: 'This lesson has no content yet.',
-        ),
-      ];
-    }
-    final blocks = body
-        .replaceAll('\r\n', '\n')
-        .split(RegExp(r'\n\s*\n'))
-        .map((b) => b.trim())
-        .where((b) => b.isNotEmpty)
-        .toList();
-
-    final widgets = <Widget>[];
-    for (final block in blocks) {
-      final heading = RegExp(r'^#{1,6}\s+').firstMatch(block);
-      final isBullet = block.startsWith('- ') ||
-          block.startsWith('* ') ||
-          block.startsWith('• ');
-      if (heading != null) {
-        widgets.add(Padding(
-          padding: const EdgeInsets.only(top: 8, bottom: 8),
-          child: Text(
-            block.substring(heading.end).trim(),
-            style: const TextStyle(fontSize: 19, fontWeight: FontWeight.bold),
-          ),
-        ));
-      } else if (isBullet) {
-        for (final line in block.split('\n')) {
-          final t = line.replaceFirst(RegExp(r'^[-*•]\s*'), '').trim();
-          if (t.isEmpty) continue;
-          widgets.add(Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Padding(
-                  padding: EdgeInsets.only(top: 7, right: 10),
-                  child: Icon(Icons.circle, size: 6, color: RoboTheme.primary),
-                ),
-                Expanded(
-                  child: Text(t,
-                      style: const TextStyle(fontSize: 15.5, height: 1.5)),
-                ),
-              ],
-            ),
-          ));
-        }
-      } else {
-        widgets.add(Padding(
-          padding: const EdgeInsets.only(bottom: 16),
-          child: Text(
-            block,
-            style: const TextStyle(fontSize: 15.5, height: 1.6),
-          ),
-        ));
-      }
-    }
-    return widgets;
   }
 
   Widget _bottomBar(

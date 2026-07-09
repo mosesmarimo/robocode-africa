@@ -1,11 +1,14 @@
+import Link from "next/link";
 import { Award, Lock } from "lucide-react";
 import { getPageUser } from "@/lib/auth/current-user";
 import { apiGet } from "@/lib/api/client";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { StatCard } from "@/components/app/stat-card";
 import { Icon } from "@/components/icon";
-import { cn, formatRelative } from "@/lib/utils";
+import { cn, formatRelative, formatDay } from "@/lib/utils";
+import type { MyCertificate } from "@/lib/tracks/api";
 
 export const metadata = { title: "Badges" };
 
@@ -32,8 +35,10 @@ interface BadgesResponse {
 export default async function BadgesPage() {
   await getPageUser();
 
-  const { allBadges, earnedRecords, earnedCount, totalCount } =
-    await apiGet<BadgesResponse>("/badges");
+  const [{ allBadges, earnedRecords, earnedCount, totalCount }, { certificates }] = await Promise.all([
+    apiGet<BadgesResponse>("/badges"),
+    apiGet<{ certificates: MyCertificate[] }>("/certificates"),
+  ]);
 
   const earnedMap = new Map(earnedRecords.map((ub) => [ub.badgeId, ub]));
 
@@ -74,6 +79,29 @@ export default async function BadgesPage() {
           hint={totalCount - earnedCount === 0 ? "You got them all!" : "Keep going!"}
         />
       </section>
+
+      {/* My Certificates — earned by completing every step of a Learning Track. */}
+      {certificates.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="font-display text-xl font-bold">My Certificates</h2>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {certificates.map((cert) => (
+              <Card key={cert.code} className="flex items-center gap-4 p-5">
+                <span className="grid size-12 shrink-0 place-items-center rounded-2xl bg-primary/10 text-2xl">
+                  🎓
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-display font-semibold leading-tight">{cert.title}</p>
+                  <p className="text-xs text-muted-foreground">Issued {formatDay(cert.issuedAt)}</p>
+                </div>
+                <Button variant="outline" size="sm" className="shrink-0" asChild>
+                  <Link href={`/cert/${cert.code}`}>View &amp; share</Link>
+                </Button>
+              </Card>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Badge grid */}
       {allBadges.length === 0 ? (

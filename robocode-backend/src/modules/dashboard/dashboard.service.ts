@@ -105,7 +105,14 @@ export class DashboardService {
 
   // --- Consent (public) ----------------------------------------------------
 
-  /** Confirm guardian consent by token (mirrors the inline `grantConsent` action). */
+  /**
+   * Confirm guardian consent by token (mirrors the inline `grantConsent` action).
+   * This only flips the ConsentRecord to `granted` — it does NOT itself
+   * activate the student. Admin/school approval (`AdminService.approveUser`,
+   * `SchoolService.approveStudent`) still gate under-13 activation on this
+   * record via `assertConsentForActivation`, and those are the calls that
+   * flip `status: "active"` and settle any pending referral.
+   */
   async confirmConsent(token: string) {
     const consent = await this.prisma.consentRecord.findUnique({ where: { token }, include: { user: true } });
     if (!consent) throw new NotFoundException("NOT_FOUND");

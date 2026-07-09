@@ -1,0 +1,10 @@
+# robocode-sandbox-rust
+FROM rust:1.79-alpine
+
+RUN apk add --no-cache musl-dev
+
+COPY run.sh /run.sh
+RUN chmod +x /run.sh
+
+WORKDIR /work
+USER 65534

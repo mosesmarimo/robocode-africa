@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -29,6 +30,8 @@ interface SettingsFormProps {
   email: string;
   role: string;
   schoolName: string | null;
+  tagline?: string;
+  bio?: string;
 }
 
 export function SettingsForm({
@@ -38,10 +41,14 @@ export function SettingsForm({
   email,
   role,
   schoolName,
+  tagline: initialTagline = "",
+  bio: initialBio = "",
 }: SettingsFormProps) {
   const [displayName, setDisplayName] = useState(initialDisplayName);
   const [locale, setLocale] = useState(initialLocale);
   const [avatarSeed, setAvatarSeed] = useState(initialAvatarSeed);
+  const [tagline, setTagline] = useState(initialTagline);
+  const [bio, setBio] = useState(initialBio);
 
   // Accessibility toggles — visual state only (no backend persistence needed for these)
   const [reduceMotion, setReduceMotion] = useState(false);
@@ -52,7 +59,7 @@ export function SettingsForm({
 
   function handleSave() {
     startTransition(async () => {
-      const result = await updateProfile({ displayName, locale, avatarSeed });
+      const result = await updateProfile({ displayName, locale, avatarSeed, tagline, bio });
       if (result.success) {
         toast.success("Profile updated successfully!");
       } else {
@@ -91,6 +98,31 @@ export function SettingsForm({
               maxLength={32}
             />
             <p className="text-xs text-muted-foreground">A short word used to generate your avatar initials style.</p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="tagline">Tagline</Label>
+            <Input
+              id="tagline"
+              value={tagline}
+              onChange={(e) => setTagline(e.target.value)}
+              placeholder="A short line about you"
+              maxLength={120}
+            />
+            <p className="text-xs text-muted-foreground">Shown under your name on your public profile (max 120 characters).</p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="bio">Bio</Label>
+            <Textarea
+              id="bio"
+              value={bio}
+              onChange={(e) => setBio(e.target.value)}
+              placeholder="Tell people a bit more about yourself…"
+              maxLength={1000}
+              rows={4}
+            />
+            <p className="text-xs text-muted-foreground">A longer description for your profile (max 1000 characters).</p>
           </div>
 
           <div className="space-y-2">

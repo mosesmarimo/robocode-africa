@@ -86,6 +86,18 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      Card(
+                        color: RoboTheme.accent.withValues(alpha: 0.10),
+                        child: ListTile(
+                          leading: const Icon(Icons.emoji_events_rounded, color: RoboTheme.accent),
+                          title: const Text('Top Projects',
+                              style: TextStyle(fontWeight: FontWeight.w600)),
+                          subtitle: const Text('See the AI-ranked best builds'),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () => context.push('/projects/top'),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
                       const Text('Your projects',
                           style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
                       const SizedBox(height: 8),
@@ -169,9 +181,9 @@ class _ProjectCard extends StatelessWidget {
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 if (boardType.isNotEmpty)
-                  _MiniChip(icon: Icons.developer_board, label: boardType),
+                  MiniChip(icon: Icons.developer_board, label: boardType),
                 if (visibility.isNotEmpty)
-                  _MiniChip(
+                  MiniChip(
                     icon: isPublic ? Icons.public : Icons.lock_outline,
                     label: visibility,
                   ),
@@ -184,7 +196,7 @@ class _ProjectCard extends StatelessWidget {
         ),
         isThreeLine: false,
         trailing: const Icon(Icons.chevron_right),
-        onTap: id == null ? null : () => context.push('/studio/$id'),
+        onTap: id == null ? null : () => context.push('/projects/$id'),
       ),
     );
   }
@@ -214,32 +226,6 @@ class _TemplateCard extends StatelessWidget {
         subtitle: boardType.isEmpty ? null : Text(boardType),
         trailing: const Icon(Icons.chevron_right),
         onTap: id == null ? null : () => context.push('/studio/$id'),
-      ),
-    );
-  }
-}
-
-class _MiniChip extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  const _MiniChip({required this.icon, required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    final c = Theme.of(context).hintColor;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: c.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 13, color: c),
-          const SizedBox(width: 4),
-          Text(label, style: TextStyle(fontSize: 12, color: c)),
-        ],
       ),
     );
   }

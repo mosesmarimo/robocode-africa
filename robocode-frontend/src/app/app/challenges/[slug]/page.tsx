@@ -10,6 +10,7 @@ import { Separator } from "@/components/ui/separator";
 import { TRACK_LABELS } from "@/lib/domain/constants";
 import { ChallengeSubmit } from "@/components/learn/challenge-submit";
 import { getBoard } from "@/lib/domain/boards";
+import { formatDay } from "@/lib/utils";
 
 const DIFFICULTY_VARIANT = {
   beginner: "success",
@@ -27,6 +28,7 @@ interface ChallengeTask {
   points: number;
   boardType: string | null;
   starterCode: string | null;
+  language?: string | null;
 }
 
 interface ChallengeSubmission {
@@ -52,7 +54,6 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
 export default async function ChallengePage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
 
-  let data: ChallengeDetailResponse;
   const [, fetched] = await Promise.all([
     getCurrentUser(),
     (async () => {
@@ -64,7 +65,7 @@ export default async function ChallengePage({ params }: { params: Promise<{ slug
       }
     })(),
   ]);
-  data = fetched;
+  const data = fetched;
 
   const { task, submissions, isPassed } = data;
 
@@ -180,7 +181,7 @@ export default async function ChallengePage({ params }: { params: Promise<{ slug
                       {s.score != null && (
                         <span className="font-semibold text-foreground">{s.score}%</span>
                       )}
-                      <span>{new Date(s.createdAt).toLocaleDateString()}</span>
+                      <span>{formatDay(s.createdAt)}</span>
                     </div>
                   </div>
                 ))}
@@ -195,6 +196,7 @@ export default async function ChallengePage({ params }: { params: Promise<{ slug
             taskId={task.id}
             starterCode={task.starterCode ?? board.starterCode}
             alreadyPassed={isPassed}
+            language={task.language}
           />
         </div>
       </div>

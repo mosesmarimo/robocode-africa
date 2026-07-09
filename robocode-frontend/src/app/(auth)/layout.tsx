@@ -6,7 +6,7 @@ import { BrandLogo } from "@/components/brand-logo";
 
 export default async function AuthLayout({ children }: { children: React.ReactNode }) {
   const { brand, tenant } = await getBranding();
-  const name = tenant?.name ?? "RoboCode.Africa";
+  const name = tenant?.name ?? "RoboCode";
 
   return (
     <div className="grid min-h-screen lg:grid-cols-2">

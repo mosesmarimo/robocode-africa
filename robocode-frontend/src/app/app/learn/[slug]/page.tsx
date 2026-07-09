@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { revalidatePath } from "next/cache";
 import { notFound } from "next/navigation";
 import {
   CheckCircle2,
@@ -11,6 +12,9 @@ import {
 } from "lucide-react";
 import { apiGet, ApiError, apiPost } from "@/lib/api/client";
 import { TRACK_LABELS, LEVEL_LABELS } from "@/lib/domain/constants";
+import { getPageUser } from "@/lib/auth/current-user";
+import { getLanguageLeaderboard, isLeaderboardLanguage, languageLabel } from "@/lib/leaderboards/actions";
+import { LeaderboardList } from "@/components/app/leaderboard-list";
 import { Card, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -41,6 +45,10 @@ interface CourseDetail {
   description: string | null;
   track: string;
   level: string;
+  /** One of the frozen 12 for a `lang-<language>` tutorial course, else null
+   * (most courses are multi-language/topic-survey content — see
+   * prisma/schema.prisma Course.language). Drives the "Top learners" widget. */
+  language: string | null;
   tenantId: string | null;
   lessons: CourseLesson[];
   tasks: CourseTask[];
@@ -71,6 +79,15 @@ export default async function CoursePage({
   }
 
   const { course, enrollment, enrolledPercent, nextLesson } = data;
+
+  // Optional "Top learners" widget — only for courses unambiguously tagged to
+  // one of the frozen 12 (the `lang-<language>` tutorial courses). Most
+  // courses are multi-language/topic-survey content with course.language ===
+  // null, which just skips this section.
+  const [user, languageBoard] =
+    course.language && isLeaderboardLanguage(course.language)
+      ? await Promise.all([getPageUser(), getLanguageLeaderboard(course.language, "all")])
+      : [null, null];
 
   const completedSet = new Set(data.completedLessonIds);
 
@@ -148,6 +165,9 @@ export default async function CoursePage({
                 action={async () => {
                   "use server";
                   await apiPost("/learn/enroll", { courseId: course.id });
+                  // Re-render so enrolledPercent flips from null → 0 and the
+                  // lessons become clickable without a manual refresh.
+                  revalidatePath(`/app/learn/${course.slug}`);
                 }}
               >
                 <Button type="submit" variant="secondary" size="lg" className="bg-white text-primary hover:bg-white/90">
@@ -292,6 +312,16 @@ export default async function CoursePage({
                 ))}
               </div>
             </Card>
+          )}
+
+          {user && languageBoard && course.language && (
+            <LeaderboardList
+              title={`Top learners — ${languageLabel(course.language)}`}
+              rows={languageBoard.rows.slice(0, 5)}
+              me={languageBoard.me}
+              currentUserId={user.id}
+              emptyLabel="No XP earned in this language yet — be the first!"
+            />
           )}
         </div>
       </div>

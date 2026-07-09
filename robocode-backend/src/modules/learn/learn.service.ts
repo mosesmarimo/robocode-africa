@@ -1,15 +1,30 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { Injectable, NotFoundException, BadRequestException } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service";
-import { PointsService } from "../../common/points.service";
-import { POINTS, TRACKS, type Track } from "../../domain/constants";
+import { GamificationService } from "../../common/gamification.service";
+import { TracksService } from "../tracks/tracks.service";
+import {
+  ALL_LANGUAGES,
+  TRACKS,
+  trackForLanguage,
+  INTERACTIVE_TASK_DAILY_CAP,
+  type Track,
+  type GamificationTaskType,
+} from "../../domain/constants";
 import type { AuthUser } from "../../auth/auth-user.type";
-import type { EnrollInput, CompleteLessonInput } from "./dto";
+import type { EnrollInput, CompleteLessonInput, CompleteTaskInput } from "./dto";
+
+/** Start of the current UTC day (for daily-cap windows). Mirrors the same helper in referrals.service.ts. */
+function startOfTodayUtc(): Date {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+}
 
 @Injectable()
 export class LearnService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly points: PointsService,
+    private readonly gamification: GamificationService,
+    private readonly tracks: TracksService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -192,8 +207,33 @@ export class LearnService {
   // Mutations (port of `lib/learn/actions.ts` + inline "use server" actions)
   // ---------------------------------------------------------------------------
 
+  /**
+   * Scope guard shared by every mutation path: a course is actionable only if
+   * it's published and either global (tenantId null) or owned by the user's
+   * tenant — unless the user is platform staff. Throws NotFoundException
+   * otherwise (so arbitrary ids can't be enrolled in / completed for points
+   * farming or cross-tenant progress).
+   */
+  private assertCourseAccessible(user: AuthUser, course: { published: boolean; tenantId: string | null }): void {
+    const isStaffUser = user.role === "super_admin" || user.role === "moderator";
+    if (!course.published || (!isStaffUser && course.tenantId !== null && course.tenantId !== user.tenantId)) {
+      throw new NotFoundException("NOT_FOUND");
+    }
+  }
+
+  /** Load a course the user is allowed to act on (see assertCourseAccessible). */
+  private async loadScopedCourse(user: AuthUser, courseId: string) {
+    const course = await this.prisma.course.findUnique({ where: { id: courseId } });
+    if (!course) throw new NotFoundException("NOT_FOUND");
+    this.assertCourseAccessible(user, course);
+    return course;
+  }
+
   /** Enroll the current user in a course. Mirrors the old `enroll` action. */
   async enroll(user: AuthUser, data: EnrollInput) {
+    // Scope guard: only published global/own-tenant courses (or staff) may be enrolled.
+    await this.loadScopedCourse(user, data.courseId);
+
     await this.prisma.enrollment.upsert({
       where: { userId_courseId: { userId: user.id, courseId: data.courseId } },
       create: { userId: user.id, courseId: data.courseId, progress: { percent: 0 } },
@@ -209,6 +249,19 @@ export class LearnService {
   async completeLesson(user: AuthUser, data: CompleteLessonInput) {
     const { lessonId, courseId } = data;
 
+    // Scope guard: the course must be visible to the user (published, global or
+    // own-tenant, or staff). Reject before doing anything else.
+    const course = await this.loadScopedCourse(user, courseId);
+
+    // Verify the lesson actually belongs to the given course — otherwise a user
+    // could pair an in-scope courseId with any lessonId to farm LESSON_COMPLETE
+    // points or corrupt progress for unrelated lessons.
+    const lesson = await this.prisma.lesson.findUnique({
+      where: { id: lessonId },
+      select: { courseId: true },
+    });
+    if (!lesson || lesson.courseId !== courseId) throw new NotFoundException("NOT_FOUND");
+
     const existing = await this.prisma.lessonProgress.findUnique({
       where: { userId_lessonId: { userId: user.id, lessonId } },
     });
@@ -219,13 +272,30 @@ export class LearnService {
       create: { userId: user.id, lessonId, status: "completed", completedAt: new Date() },
       update: { status: "completed", completedAt: new Date() },
     });
-    await this.points.awardPoints({
+    // Lessons don't carry their own `language` — they inherit it from their
+    // course. `Course.language` is set only for courses unambiguously tied to
+    // one of the frozen 12 (the `lang-<language>` tutorial courses; see
+    // scripts/backfill-course-task-tags.ts), so most courses still complete
+    // with `language` null. Track mirrors the challenge path in
+    // competitions.service.ts: prefer the language-derived track (matches
+    // Course.language's actual track whenever we set it), falling back to
+    // the course's own `track` field when language is unset. A course track
+    // of "ai" doesn't map to either gamification track, so it's left
+    // untagged rather than mis-tagged.
+    const track =
+      trackForLanguage(course.language) ??
+      (course.track === "coding" || course.track === "robotics" ? course.track : undefined);
+    // The 12 W3Schools-style language tutorial courses (prisma/content/tutorials-*.ts)
+    // are seeded with a `tutorial-<language>` slug (see prisma/content/index.ts
+    // TUTORIAL_MODULES / tutorials.smoke.ts) — their lessons pay the lower
+    // "tutorial-lesson" XP tier instead of the standard "lesson" tier.
+    const taskType: GamificationTaskType = course.slug.startsWith("tutorial-") ? "tutorial-lesson" : "lesson";
+    await this.gamification.completeTask({
       userId: user.id,
-      delta: POINTS.LESSON_COMPLETE,
-      reason: "Completed a lesson",
-      refType: "lesson",
+      type: taskType,
       refId: lessonId,
-      idemKey: `lesson-${user.id}-${lessonId}`,
+      language: course.language,
+      track,
     });
 
     // update course progress percent
@@ -241,6 +311,117 @@ export class LearnService {
       create: { userId: user.id, courseId, progress: { percent } },
       update: { progress: { percent }, completedAt: percent >= 100 ? new Date() : null },
     });
+
+    // Course-complete XP, paid once per course per user (idempotent on
+    // `task:course-complete:<courseId>:<userId>` — safe to re-run every time
+    // percent recomputes to 100, e.g. a lesson re-completed after content edits).
+    if (percent >= 100) {
+      await this.gamification.completeTask({
+        userId: user.id,
+        type: "course-complete",
+        refId: courseId,
+        language: course.language,
+        track,
+      });
+      await this.tracks.onCourseCompleted(user.id, courseId);
+    }
+
     return { ok: true, percent };
+  }
+
+  /**
+   * Validate that `refId` names a REAL `tryit`/`exercise` block the caller can
+   * access, closing the XP-farming hole where any string refId + language
+   * combo could mint unlimited XP. Both the frontend (`LessonBody` in
+   * robocode-frontend/src/components/learn/lesson-body.tsx) and mobile
+   * (`lib/widgets/rich_content.dart`) construct refId as
+   * `${lessonId}#${blockIndex}` (fallback `lesson#${index}` when no lesson id
+   * is available, which never resolves here and is rejected) — the block's
+   * position in `Lesson.body.blocks`, 0-indexed. Lesson content blocks have no
+   * stable id (see prisma/content/types.ts `Block`), so the index IS the only
+   * identity available; reordering authored content shifts refIds, which is
+   * an accepted content-authoring constraint, not a security concern.
+   *
+   * Returns the block's own `language` (tryit/exercise blocks always carry
+   * one) on success. Throws BadRequestException/NotFoundException — and
+   * awards nothing — when refId doesn't parse, the lesson doesn't exist or
+   * isn't in an accessible course, the index is out of range, the block at
+   * that index isn't a `type`-matching tryit/exercise block, or its language
+   * doesn't match the request's.
+   */
+  private async resolveInteractiveBlockRef(user: AuthUser, data: CompleteTaskInput): Promise<string> {
+    const hashIdx = data.refId.indexOf("#");
+    if (hashIdx <= 0) throw new BadRequestException("INVALID_REF_ID");
+    const lessonId = data.refId.slice(0, hashIdx);
+    const indexPart = data.refId.slice(hashIdx + 1);
+    if (!/^\d+$/.test(indexPart)) throw new BadRequestException("INVALID_REF_ID");
+    const index = Number(indexPart);
+
+    const lesson = await this.prisma.lesson.findUnique({
+      where: { id: lessonId },
+      include: { course: true },
+    });
+    if (!lesson) throw new NotFoundException("NOT_FOUND");
+    // Same accessibility rule as every other mutation path — published,
+    // global or own-tenant (or staff) — so a lesson in a draft/foreign-tenant
+    // course can't be used to farm XP either.
+    this.assertCourseAccessible(user, lesson.course);
+
+    const blocks = (lesson.body as { blocks?: Array<Record<string, unknown>> } | null)?.blocks;
+    const block = blocks?.[index];
+    if (!block || block.type !== data.type) throw new NotFoundException("NOT_FOUND");
+
+    const blockLanguage = typeof block.language === "string" ? block.language : undefined;
+    if (!blockLanguage || blockLanguage !== data.language) {
+      throw new BadRequestException("LANGUAGE_MISMATCH");
+    }
+    return blockLanguage;
+  }
+
+  /**
+   * Award XP for a `tryit` (first successful run) or `exercise` completion
+   * inside a Content Library lesson block. `refId` must resolve to a real
+   * tryit/exercise block in an accessible lesson (resolveInteractiveBlockRef)
+   * — otherwise this throws and awards nothing. On top of that, a per-user
+   * daily cap (INTERACTIVE_TASK_DAILY_CAP) backstops abuse even if a bug ever
+   * slipped past the refId check: once a user has banked that many genuinely
+   * new tryit/exercise awards today (UTC), further first-time completions
+   * no-op (`alreadyDone`-shaped response, 0 XP) rather than erroring, so the
+   * calling UI doesn't need special-case handling. Repeat calls for a refId
+   * already paid today don't count against the cap and still resolve via
+   * GamificationService.completeTask's own idempotency
+   * (`task:<type>:<refId>:<userId>`).
+   */
+  async completeTask(user: AuthUser, data: CompleteTaskInput) {
+    const blockLanguage = await this.resolveInteractiveBlockRef(user, data);
+    // blockLanguage is validated above to equal data.language, so it's already
+    // one of the frozen 12 whenever the client sends a recognized value; this
+    // mirrors the same ALL_LANGUAGES guard the other completeTask paths use.
+    const language = (ALL_LANGUAGES as readonly string[]).includes(blockLanguage) ? blockLanguage : undefined;
+
+    const idemKey = `task:${data.type}:${data.refId}:${user.id}`;
+    const existing = await this.prisma.roboPointLedger.findUnique({
+      where: { idemKey },
+      select: { id: true },
+    });
+    if (!existing) {
+      const awardedToday = await this.prisma.roboPointLedger.count({
+        where: {
+          userId: user.id,
+          refType: { in: ["tryit", "exercise"] },
+          createdAt: { gte: startOfTodayUtc() },
+        },
+      });
+      if (awardedToday >= INTERACTIVE_TASK_DAILY_CAP) {
+        return { awarded: 0, alreadyDone: true };
+      }
+    }
+
+    return this.gamification.completeTask({
+      userId: user.id,
+      type: data.type,
+      refId: data.refId,
+      language,
+    });
   }
 }

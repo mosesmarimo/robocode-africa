@@ -12,7 +12,7 @@ export type CreateClassInput = z.infer<typeof createClassSchema>;
 
 /** addStudentByEmail — student email (mirrors old FormData "email"). */
 export const addStudentSchema = z.object({
-  email: z.string().trim().min(1, "Email is required."),
+  email: z.string().trim().email("Enter a valid email."),
 });
 export type AddStudentInput = z.infer<typeof addStudentSchema>;
 

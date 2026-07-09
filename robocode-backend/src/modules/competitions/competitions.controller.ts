@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Param, Post } from "@nestjs/common";
 import { CompetitionsService } from "./competitions.service";
-import { CurrentUser, RequireActive } from "../../auth/decorators";
+import { CurrentUser, RequireActive, RequireCapability } from "../../auth/decorators";
 import type { AuthUser } from "../../auth/auth-user.type";
 import { ZodPipe } from "../../common/zod.pipe";
 import { enterCompetitionSchema, type EnterCompetitionInput, submitSolutionSchema, type SubmitSolutionInput } from "./dto";
@@ -66,6 +66,32 @@ export class ChallengesController {
     @Body(new ZodPipe(submitSolutionSchema)) body: SubmitSolutionInput,
   ) {
     return this.competitions.submitSolution(user, taskId, body.code);
+  }
+
+  // =========================================================================
+  // Post-solve solutions gallery — gated on the caller having passed the task
+  // =========================================================================
+
+  /** Post-solve gallery: other students' anonymized accepted solutions for a
+   *  task. 403s unless the caller has themselves passed it (no spoiling). */
+  @RequireActive()
+  @Get(":taskId/solutions")
+  solutions(@CurrentUser() user: AuthUser, @Param("taskId") taskId: string) {
+    return this.competitions.getChallengeSolutions(user, taskId);
+  }
+
+  /** Toggle a like on another student's accepted solution (idempotent). */
+  @RequireActive()
+  @Post("solutions/:submissionId/like")
+  likeSolution(@CurrentUser() user: AuthUser, @Param("submissionId") submissionId: string) {
+    return this.competitions.toggleSolutionLike(user, submissionId);
+  }
+
+  /** Teacher/admin: toggle a solution as the curated exemplar in the gallery. */
+  @RequireCapability("content.author")
+  @Post("solutions/:submissionId/exemplar")
+  toggleExemplar(@Param("submissionId") submissionId: string) {
+    return this.competitions.toggleSolutionExemplar(submissionId);
   }
 }
 

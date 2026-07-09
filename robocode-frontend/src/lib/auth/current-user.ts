@@ -18,6 +18,13 @@ export type CurrentUser = {
   roboPoints: number;
   level: number;
   locale: string | null;
+  /**
+   * Daily-active login streak (see backend `StreakService.touch`) — 0 if never touched.
+   * `embers` (0..3) absorb a single missed day; `frozenUntil` (YYYY-MM-DD, if set) is a
+   * rarer milestone-earned multi-day miss protection. Both additive/optional so older
+   * payloads (or callers that don't send them) still type-check — default to 0/absent.
+   */
+  streak: { count: number; embers?: number; frozenUntil?: string };
   tenant: {
     id: string;
     slug: string;

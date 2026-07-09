@@ -1,0 +1,8 @@
+# robocode-sandbox-csharp
+FROM mono:6.12
+
+COPY run.sh /run.sh
+RUN chmod +x /run.sh
+
+WORKDIR /work
+USER 65534

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { BookOpen, ArrowRight, Clock, Layers } from "lucide-react";
+import { BookOpen, ArrowRight, Clock, Trophy } from "lucide-react";
 import { apiGet } from "@/lib/api/client";
 import { TRACK_LABELS, LEVEL_LABELS, type Track } from "@/lib/domain/constants";
 import { Card } from "@/components/ui/card";
@@ -27,8 +27,15 @@ interface LearnCoursesResponse {
   stats: { totalCourses: number; enrolledCount: number; completedCount: number };
 }
 
-export default async function LearnPage() {
-  const data = await apiGet<LearnCoursesResponse>("/learn/courses");
+export default async function LearnPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ track?: string }>;
+}) {
+  const [{ track: trackParam }, data] = await Promise.all([
+    searchParams,
+    apiGet<LearnCoursesResponse>("/learn/courses"),
+  ]);
 
   const { courses } = data;
 
@@ -39,6 +46,19 @@ export default async function LearnPage() {
   const grouped = new Map<Track, CourseCard[]>(
     trackOrder.map((t) => [t, data.grouped[t] ?? []]),
   );
+
+  // Active tab from ?track=…, falling back to the first track with courses.
+  const activeTrack: Track =
+    (trackParam && trackOrder.includes(trackParam as Track) ? (trackParam as Track) : null) ??
+    trackOrder.find((t) => (grouped.get(t)?.length ?? 0) > 0) ??
+    trackOrder[0];
+  const activeCourses = grouped.get(activeTrack) ?? [];
+
+  const trackTabColors: Record<Track, string> = {
+    robotics: "from-[#2563ff] to-[#16c79a]",
+    coding: "from-[#16c79a] to-[#5fb73a]",
+    ai: "from-[#7c3aed] to-[#ec4899]",
+  };
 
   const totalCourses = data.stats.totalCourses;
   const enrolledCount = data.stats.enrolledCount;
@@ -75,97 +95,99 @@ export default async function LearnPage() {
         </div>
       </section>
 
-      {/* Courses by track */}
-      {trackOrder.map((track) => {
-        const trackCourses = grouped.get(track) ?? [];
-        if (trackCourses.length === 0) return null;
-
-        const trackIcons: Record<Track, React.ReactNode> = {
-          robotics: <Layers className="size-4" />,
-          coding: <BookOpen className="size-4" />,
-          ai: <span className="text-xs font-bold">AI</span>,
-        };
-
-        const trackColors: Record<Track, string> = {
-          robotics: "bg-primary/12 text-primary",
-          coding: "bg-secondary/15 text-secondary",
-          ai: "bg-accent/18 text-accent-foreground",
-        };
-
-        return (
-          <section key={track}>
-            <div className="mb-4 flex items-center gap-2">
-              <span
-                className={`grid size-7 place-items-center rounded-lg text-xs ${trackColors[track]}`}
+      {/* Track tabs — Robotics / Coding / AI */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap gap-2.5">
+          {trackOrder.map((t) => {
+            const active = t === activeTrack;
+            const count = grouped.get(t)?.length ?? 0;
+            return (
+              <Link
+                key={t}
+                href={`/app/learn?track=${t}`}
+                aria-current={active ? "page" : undefined}
+                className={
+                  active
+                    ? `rounded-xl bg-gradient-to-r ${trackTabColors[t]} px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-primary/30 ring-2 ring-white/40 scale-[1.03] transition-all`
+                    : "rounded-xl bg-muted px-5 py-2.5 text-sm font-semibold text-muted-foreground transition-all hover:bg-muted/70 hover:text-foreground"
+                }
               >
-                {trackIcons[track]}
-              </span>
-              <h2 className="font-display text-xl font-bold">{TRACK_LABELS[track]}</h2>
-              <span className="text-sm text-muted-foreground">
-                ({trackCourses.length} {trackCourses.length === 1 ? "course" : "courses"})
-              </span>
-            </div>
+                {TRACK_LABELS[t]}
+                <span className={`ml-2 ${active ? "text-white/85" : "text-muted-foreground/70"}`}>{count}</span>
+              </Link>
+            );
+          })}
+        </div>
+        <Button variant="outline" size="sm" asChild>
+          <Link href="/app/leaderboards">
+            <Trophy className="size-4" /> Leaderboards
+          </Link>
+        </Button>
+      </div>
 
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {trackCourses.map((course) => {
-                const percent = enrollMap.get(course.id) ?? -1;
-                const enrolled = percent >= 0;
+      {/* Active track's courses */}
+      <section>
+        {activeCourses.length === 0 ? (
+          <Card className="flex flex-col items-center justify-center gap-3 p-12 text-center">
+            <BookOpen className="size-8 text-muted-foreground" />
+            <p className="text-sm text-muted-foreground">No {TRACK_LABELS[activeTrack]} courses yet.</p>
+          </Card>
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {activeCourses.map((course) => {
+              const percent = enrollMap.get(course.id) ?? -1;
+              const enrolled = percent >= 0;
 
-                return (
-                  <Link key={course.id} href={`/app/learn/${course.slug}`}>
-                    <Card className="group h-full p-5 transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-lg">
-                      <div className="flex items-start justify-between gap-2">
-                        <Badge
-                          variant={
-                            course.level === "primary" ? "default" : "secondary"
-                          }
-                        >
-                          {LEVEL_LABELS[course.level as keyof typeof LEVEL_LABELS]}
-                        </Badge>
-                        {enrolled && (
-                          <Badge variant={percent >= 100 ? "success" : "muted"}>
-                            {percent >= 100 ? "Done" : `${percent}%`}
-                          </Badge>
-                        )}
-                      </div>
-
-                      <h3 className="mt-3 font-display font-bold leading-snug group-hover:text-primary">
-                        {course.title}
-                      </h3>
-
-                      {course.description && (
-                        <p className="mt-1.5 line-clamp-2 text-sm text-muted-foreground">
-                          {course.description}
-                        </p>
-                      )}
-
-                      <div className="mt-4 flex items-center gap-3 text-xs text-muted-foreground">
-                        <span className="flex items-center gap-1">
-                          <Clock className="size-3" />
-                          {course._count.lessons} {course._count.lessons === 1 ? "lesson" : "lessons"}
-                        </span>
-                      </div>
-
+              return (
+                <Link key={course.id} href={`/app/learn/${course.slug}`}>
+                  <Card className="group h-full p-5 transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-lg">
+                    <div className="flex items-start justify-between gap-2">
+                      <Badge variant={course.level === "primary" ? "default" : "secondary"}>
+                        {LEVEL_LABELS[course.level as keyof typeof LEVEL_LABELS]}
+                      </Badge>
                       {enrolled && (
-                        <div className="mt-3">
-                          <Progress value={percent} className="h-1.5" />
-                          <p className="mt-1 text-xs text-muted-foreground">{percent}% complete</p>
-                        </div>
+                        <Badge variant={percent >= 100 ? "success" : "muted"}>
+                          {percent >= 100 ? "Done" : `${percent}%`}
+                        </Badge>
                       )}
+                    </div>
 
-                      {!enrolled && (
-                        <div className="mt-4 flex items-center gap-1 text-xs font-medium text-primary opacity-0 transition-opacity group-hover:opacity-100">
-                          Start course <ArrowRight className="size-3" />
-                        </div>
-                      )}
-                    </Card>
-                  </Link>
-                );
-              })}
-            </div>
-          </section>
-        );
-      })}
+                    <h3 className="mt-3 font-display font-bold leading-snug group-hover:text-primary">
+                      {course.title}
+                    </h3>
+
+                    {course.description && (
+                      <p className="mt-1.5 line-clamp-2 text-sm text-muted-foreground">
+                        {course.description}
+                      </p>
+                    )}
+
+                    <div className="mt-4 flex items-center gap-3 text-xs text-muted-foreground">
+                      <span className="flex items-center gap-1">
+                        <Clock className="size-3" />
+                        {course._count.lessons} {course._count.lessons === 1 ? "lesson" : "lessons"}
+                      </span>
+                    </div>
+
+                    {enrolled && (
+                      <div className="mt-3">
+                        <Progress value={percent} className="h-1.5" />
+                        <p className="mt-1 text-xs text-muted-foreground">{percent}% complete</p>
+                      </div>
+                    )}
+
+                    {!enrolled && (
+                      <div className="mt-4 flex items-center gap-1 text-xs font-medium text-primary opacity-0 transition-opacity group-hover:opacity-100">
+                        Start course <ArrowRight className="size-3" />
+                      </div>
+                    )}
+                  </Card>
+                </Link>
+              );
+            })}
+          </div>
+        )}
+      </section>
 
       {courses.length === 0 && (
         <Card className="flex flex-col items-center justify-center gap-4 p-16 text-center">

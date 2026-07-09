@@ -18,6 +18,27 @@ class CommunityScreen extends StatelessWidget {
 
     final items = <_CommunityItem>[
       const _CommunityItem(
+        icon: Icons.dynamic_feed_rounded,
+        title: 'Feed',
+        subtitle: 'Posts from friends, groups and follows',
+        route: '/social/feed',
+        color: RoboTheme.primary,
+      ),
+      const _CommunityItem(
+        icon: Icons.people_alt_rounded,
+        title: 'Friends',
+        subtitle: 'Connect with builders across RoboCode',
+        route: '/social/friends',
+        color: RoboTheme.secondary,
+      ),
+      const _CommunityItem(
+        icon: Icons.groups_2_rounded,
+        title: 'Groups',
+        subtitle: 'Join communities and share your work',
+        route: '/social/groups',
+        color: Colors.deepPurple,
+      ),
+      const _CommunityItem(
         icon: Icons.emoji_events_rounded,
         title: 'Competitions',
         subtitle: 'Enter robotics challenges and win',
@@ -46,6 +67,44 @@ class CommunityScreen extends StatelessWidget {
         color: Colors.purple,
       ),
     ];
+
+    final role = user?.role ?? '';
+    if (const ['super_admin', 'moderator'].contains(role)) {
+      items.insert(
+        0,
+        const _CommunityItem(
+          icon: Icons.shield_rounded,
+          title: 'Platform admin',
+          subtitle: 'Approvals, users, schools, moderation',
+          route: '/admin',
+          color: RoboTheme.ink,
+        ),
+      );
+    }
+    if (const ['school_admin', 'super_admin'].contains(role)) {
+      items.insert(
+        0,
+        const _CommunityItem(
+          icon: Icons.apartment_rounded,
+          title: 'School admin',
+          subtitle: 'Approvals, members, branding, reports',
+          route: '/school',
+          color: RoboTheme.ink,
+        ),
+      );
+    }
+    if (const ['teacher', 'school_admin', 'super_admin'].contains(role)) {
+      items.insert(
+        0,
+        const _CommunityItem(
+          icon: Icons.school_rounded,
+          title: 'Teaching',
+          subtitle: 'Classes, assignments and grading',
+          route: '/teacher',
+          color: RoboTheme.ink,
+        ),
+      );
+    }
 
     return Scaffold(
       body: ListView(

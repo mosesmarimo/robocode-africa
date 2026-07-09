@@ -7,13 +7,15 @@ import { Sidebar } from "@/components/app/sidebar";
 import { Topbar } from "@/components/app/topbar";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
-  const user = await getCurrentUser();
+  const [user, shell] = await Promise.all([
+    getCurrentUser(),
+    apiGetOrNull<{ unread: number }>("/shell"),
+  ]);
   if (!user) redirect("/login");
   if (user.status !== "active") redirect("/pending");
 
   const brand = brandFromTenant(user.tenant?.branding);
-  const brandName = user.tenant?.name ?? "RoboCode.Africa";
-  const shell = await apiGetOrNull<{ unread: number }>("/shell");
+  const brandName = user.tenant?.name ?? "RoboCode";
   const unread = shell?.unread ?? 0;
 
   return (
@@ -26,6 +28,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           email={user.email}
           role={user.role}
           points={user.roboPoints}
+          streak={user.streak}
           unread={unread}
           brandName={brandName}
         />

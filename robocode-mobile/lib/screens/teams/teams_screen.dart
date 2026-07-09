@@ -114,7 +114,7 @@ class _TeamsScreenState extends State<TeamsScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _sectionTitle('My teams'),
+                      const SectionTitle('My teams'),
                       const SizedBox(height: 10),
                       if (myMemberships.isEmpty)
                         const EmptyState(
@@ -130,7 +130,7 @@ class _TeamsScreenState extends State<TeamsScreen> {
                           return _myTeamCard(context, team, role);
                         }),
                       const SizedBox(height: 24),
-                      _sectionTitle('Browse teams'),
+                      const SectionTitle('Browse teams'),
                       const SizedBox(height: 10),
                       if (browseTeams.isEmpty)
                         const EmptyState(
@@ -328,8 +328,6 @@ class _TeamsScreenState extends State<TeamsScreen> {
     );
   }
 
-  Widget _sectionTitle(String title) =>
-      Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold));
 }
 
 class _NewTeam {

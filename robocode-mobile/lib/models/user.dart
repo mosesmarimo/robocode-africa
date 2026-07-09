@@ -27,6 +27,15 @@ class AppUser {
   final int level;
   final String? locale;
   final TenantSummary? tenant;
+  // Daily-active streak day count (see backend StreakService). Null when the
+  // response predates the `streak` field — treated the same as 0.
+  final int? streakCount;
+  // Forgiving-streak "embers" (0..3) — each absorbs a single missed day.
+  // Additive/null-safe: defaults to 0 on older responses. See StreakService.
+  final int streakEmbers;
+  // Rarer milestone freeze: absorbs a multi-day gap while active. Null when
+  // no freeze is currently granted.
+  final DateTime? streakFrozenUntil;
 
   AppUser({
     required this.id,
@@ -41,11 +50,19 @@ class AppUser {
     required this.level,
     required this.locale,
     required this.tenant,
+    this.streakCount,
+    this.streakEmbers = 0,
+    this.streakFrozenUntil,
   });
 
   bool get isStaff => const ['super_admin', 'moderator', 'school_admin', 'teacher'].contains(role);
   bool get isActive => status == 'active';
   String get firstName => displayName.split(' ').first;
+  // Small flame indicator only earns its place in the UI once a streak is
+  // actually building — a 1-day "streak" isn't worth celebrating.
+  bool get hasVisibleStreak => (streakCount ?? 0) >= 2;
+  // A freeze is only worth showing while it's still active (future date).
+  bool get hasActiveFreeze => streakFrozenUntil != null && streakFrozenUntil!.isAfter(DateTime.now());
 
   factory AppUser.fromJson(Map<String, dynamic> j) => AppUser(
         id: j['id']?.toString() ?? '',
@@ -60,6 +77,9 @@ class AppUser {
         level: (j['level'] as num?)?.toInt() ?? 1,
         locale: j['locale']?.toString(),
         tenant: j['tenant'] is Map<String, dynamic> ? TenantSummary.fromJson(j['tenant']) : null,
+        streakCount: (j['streak'] is Map) ? (j['streak']['count'] as num?)?.toInt() : null,
+        streakEmbers: (j['streak'] is Map) ? ((j['streak']['embers'] as num?)?.toInt() ?? 0) : 0,
+        streakFrozenUntil: (j['streak'] is Map) ? DateTime.tryParse(j['streak']['frozenUntil']?.toString() ?? '') : null,
       );
 
   static const roleLabels = {

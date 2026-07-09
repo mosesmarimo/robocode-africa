@@ -15,12 +15,16 @@ export class NotificationsService {
    * page header shows. Mirrors `notifications/page.tsx`.
    */
   async list(user: AuthUser) {
-    const notifications = await this.prisma.notification.findMany({
-      where: { userId: user.id },
-      orderBy: { createdAt: "desc" },
-    });
-
-    const unreadCount = notifications.filter((n) => !n.readAt).length;
+    // Bound the page (notifications accumulate indefinitely) and compute the
+    // unread count in the DB rather than over the full in-memory list.
+    const [notifications, unreadCount] = await Promise.all([
+      this.prisma.notification.findMany({
+        where: { userId: user.id },
+        orderBy: { createdAt: "desc" },
+        take: 50,
+      }),
+      this.prisma.notification.count({ where: { userId: user.id, readAt: null } }),
+    ]);
 
     return { notifications, unreadCount };
   }

@@ -1,49 +1,9 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service";
 import { PointsService } from "../../common/points.service";
+import { ContentSafetyService } from "../../common/content-safety.service";
 import { isStaff } from "../../domain/roles";
 import type { AuthUser } from "../../auth/auth-user.type";
-
-// ---------------------------------------------------------------------------
-// Safety filter (ported verbatim from the old teams/actions.ts)
-// ---------------------------------------------------------------------------
-
-const BANNED_WORDS = [
-  "idiot",
-  "stupid",
-  "dumb",
-  "hate",
-  "kill",
-  "die",
-  "ugly",
-  "loser",
-  "shut up",
-  "crap",
-  "damn",
-  "hell",
-  "bastard",
-  "moron",
-  "freak",
-];
-
-// Email pattern: something@something.tld
-const EMAIL_RE = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/;
-// Phone: 7+ consecutive digits (with optional separators)
-const PHONE_RE = /(\+?\d[\s\-.]?){7,}/;
-
-function filterMessage(body: string): "clean" | "blocked" {
-  const lower = body.toLowerCase();
-  for (const word of BANNED_WORDS) {
-    // word-boundary aware: check for the word surrounded by non-alpha or string start/end
-    if (new RegExp(`(?<![a-z])${word}(?![a-z])`, "i").test(lower)) {
-      return "blocked";
-    }
-  }
-  if (EMAIL_RE.test(body) || PHONE_RE.test(body)) {
-    return "blocked";
-  }
-  return "clean";
-}
 
 const MAX_TEAM_SIZE = 8;
 
@@ -52,6 +12,7 @@ export class TeamsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly points: PointsService,
+    private readonly safety: ContentSafetyService,
   ) {}
 
   // =========================================================================
@@ -181,7 +142,7 @@ export class TeamsService {
   async createTeam(user: AuthUser, name: string, description: string) {
     const trimmedName = name.trim();
     if (!trimmedName || trimmedName.length < 2) {
-      return { error: "Team name must be at least 2 characters." };
+      throw new BadRequestException({ message: "Team name must be at least 2 characters." });
     }
 
     const team = await this.prisma.team.create({
@@ -216,17 +177,17 @@ export class TeamsService {
     });
 
     if (!team || team.tenantId !== user.tenantId) {
-      return { error: "Team not found." };
+      throw new NotFoundException({ message: "Team not found." });
     }
 
     const alreadyMember = team.members.some((m) => m.userId === user.id);
     if (alreadyMember) {
-      return { error: "You are already a member of this team." };
+      throw new BadRequestException({ message: "You are already a member of this team." });
     }
 
     const activeCount = team.members.filter((m) => m.status === "active").length;
     if (activeCount >= MAX_TEAM_SIZE) {
-      return { error: "This team is full." };
+      throw new BadRequestException({ message: "This team is full." });
     }
 
     await this.prisma.teamMember.create({
@@ -254,7 +215,7 @@ export class TeamsService {
     });
 
     if (!membership) {
-      return { error: "You are not a member of this team." };
+      throw new BadRequestException({ message: "You are not a member of this team." });
     }
 
     if (membership.role === "captain") {
@@ -294,19 +255,18 @@ export class TeamsService {
    */
   async postMessage(user: AuthUser, teamId: string, body: string) {
     const trimmed = body.trim();
-    if (!trimmed) return { error: "Message cannot be empty." };
-    if (trimmed.length > 500) return { error: "Message too long (max 500 characters)." };
+    if (!trimmed) throw new BadRequestException({ message: "Message cannot be empty." });
+    if (trimmed.length > 500) throw new BadRequestException({ message: "Message too long (max 500 characters)." });
 
     // Only active team members may post
     const membership = await this.prisma.teamMember.findUnique({
       where: { teamId_userId: { teamId, userId: user.id } },
     });
     if (!membership || membership.status !== "active") {
-      return { error: "You must be a team member to post messages." };
+      throw new ForbiddenException({ message: "You must be a team member to post messages." });
     }
 
-    const safety = filterMessage(trimmed);
-    const status = safety === "clean" ? "approved" : "blocked";
+    const status = this.safety.check(trimmed) === "clean" ? "approved" : "blocked";
 
     const message = await this.prisma.chatMessage.create({
       data: {

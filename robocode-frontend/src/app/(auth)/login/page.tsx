@@ -11,16 +11,6 @@ export default function LoginPage() {
       <div className="mt-8">
         <LoginForm />
       </div>
-
-      <details className="mt-6 rounded-xl border border-dashed border-border bg-muted/40 p-4 text-sm">
-        <summary className="cursor-pointer font-medium text-muted-foreground">Demo accounts (password: password123)</summary>
-        <ul className="mt-3 space-y-1 text-muted-foreground">
-          <li><b className="text-foreground">Student:</b> tariro@springfield.robocode.africa</li>
-          <li><b className="text-foreground">Teacher:</b> curie@springfield.robocode.africa</li>
-          <li><b className="text-foreground">School admin:</b> admin@springfield.robocode.africa</li>
-          <li><b className="text-foreground">Platform admin:</b> super@robocode.africa</li>
-        </ul>
-      </details>
     </div>
   );
 }

@@ -6,9 +6,12 @@ import { ZodPipe } from "../../common/zod.pipe";
 import {
   rejectUserSchema,
   resolveModerationSchema,
+  resetPasswordSchema,
   type RejectUserInput,
   type ResolveModerationInput,
+  type ResetPasswordInput,
 } from "./dto";
+import { takedownSchema, type TakedownInput } from "../publish/dto";
 
 @Controller("admin")
 export class AdminController {
@@ -99,6 +102,17 @@ export class AdminController {
     return this.admin.reinstateUser(user, userId);
   }
 
+  /** resetPassword — platform.manage. Returns a temp password when one is generated. */
+  @RequireCapability("platform.manage")
+  @Post("users/:userId/reset-password")
+  resetPassword(
+    @CurrentUser() user: AuthUser,
+    @Param("userId") userId: string,
+    @Body(new ZodPipe(resetPasswordSchema)) body: ResetPasswordInput,
+  ) {
+    return this.admin.resetPassword(user, userId, body.password);
+  }
+
   /** approveTenant — platform.manage. */
   @RequireCapability("platform.manage")
   @Post("tenants/:tenantId/approve")
@@ -129,5 +143,12 @@ export class AdminController {
     @Body(new ZodPipe(resolveModerationSchema)) body: ResolveModerationInput,
   ) {
     return this.admin.resolveModeration(user, caseId, body.action);
+  }
+
+  /** Takedown a published project — clears its publish fields + opens a resolved ModerationCase. */
+  @RequireCapability("moderation.manage")
+  @Post("publish/takedown")
+  takedownPublish(@CurrentUser() user: AuthUser, @Body(new ZodPipe(takedownSchema)) body: TakedownInput) {
+    return this.admin.takedownPublish(user, body.domain, body.subdomain, body.reason);
   }
 }

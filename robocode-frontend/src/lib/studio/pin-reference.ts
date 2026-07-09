@@ -1,0 +1,37 @@
+// Curated pin-name reference for catalogue components, so RoboVibe (AI) wires new
+// parts to real pins. Pins of parts already on the canvas are read live from the
+// rendered element's pinInfo; this covers components the AI may ADD. Best-effort —
+// an unknown/mis-named pin simply drops that wire on the client (non-fatal).
+export const COMPONENT_PINS: Record<string, string[]> = {
+  led: ["A", "C"],
+  "rgb-led": ["R", "COM", "G", "B"],
+  "led-bar": ["A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8", "A9", "A10", "C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "C10"],
+  neopixel: ["VDD", "DIN", "VSS", "DOUT"],
+  "led-ring": ["VCC", "GND", "DIN", "DOUT"],
+  buzzer: ["1", "2"],
+  resistor: ["1", "2"],
+  lcd1602: ["VCC", "GND", "SDA", "SCL"],
+  lcd2004: ["VCC", "GND", "SDA", "SCL"],
+  ssd1306: ["VCC", "GND", "SCL", "SDA"],
+  "7segment": ["A", "B", "C", "D", "E", "F", "G", "DP", "COM.1", "COM.2"],
+  pushbutton: ["1.l", "2.l", "1.r", "2.r"],
+  "slide-switch": ["1", "2", "3"],
+  "tilt-switch": ["1", "2"],
+  potentiometer: ["GND", "SIG", "VCC"],
+  "slide-pot": ["GND", "SIG", "VCC"],
+  joystick: ["VCC", "VERT", "HORZ", "SEL", "GND"],
+  keypad: ["R1", "R2", "R3", "R4", "C1", "C2", "C3", "C4"],
+  "ky-040": ["CLK", "DT", "SW", "+", "GND"],
+  ultrasonic: ["VCC", "TRIG", "ECHO", "GND"],
+  pir: ["VCC", "OUT", "GND"],
+  dht22: ["VCC", "SDA", "NC", "GND"],
+  ntc: ["VCC", "GND", "OUT"],
+  photoresistor: ["VCC", "GND", "DO", "AO"],
+  sound: ["VCC", "GND", "AOUT", "DOUT"],
+  gas: ["VCC", "GND", "AOUT", "DOUT"],
+  flame: ["VCC", "GND", "AOUT", "DOUT"],
+  mpu6050: ["VCC", "GND", "SCL", "SDA", "XDA", "XCL", "AD0", "INT"],
+  "ir-receiver": ["GND", "VCC", "DAT"],
+  servo: ["PWM", "V+", "GND"],
+  ds1307: ["GND", "VCC", "SDA", "SCL", "SQW", "BAT"],
+};

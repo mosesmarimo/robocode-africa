@@ -17,5 +17,7 @@ const StudioApp = dynamic(() => import("@/components/studio/studio-app").then((m
 });
 
 export function StudioClient({ initial }: { initial: StudioInitial }) {
-  return <StudioApp initial={initial} />;
+  // Key on the project id so the whole studio remounts (and its module-level
+  // zustand store is re-seeded via load()) when navigating between projects.
+  return <StudioApp key={initial.projectId} initial={initial} />;
 }

@@ -1,22 +1,35 @@
 import type { Role } from "@/lib/domain/roles";
 
-export type NavItem = { label: string; href: string; icon: string };
+export type NavChild = { label: string; href: string };
+export type NavItem = { label: string; href: string; icon: string; children?: NavChild[] };
 export type NavSection = { title?: string; items: NavItem[] };
+
+// Sub-menu shown under the Academy item — each opens the matching tab on the Academy page.
+const ACADEMY_CHILDREN: NavChild[] = [
+  { label: "Robotics", href: "/app/learn?track=robotics" },
+  { label: "Coding", href: "/app/learn?track=coding" },
+  { label: "AI", href: "/app/learn?track=ai" },
+];
 
 const STUDENT: NavSection[] = [
   {
     items: [
       { label: "Dashboard", href: "/app", icon: "layout-dashboard" },
       { label: "RoboCode Studio", href: "/app/projects", icon: "cpu" },
-      { label: "Learn", href: "/app/learn", icon: "graduation-cap" },
+      { label: "Academy", href: "/app/learn", icon: "graduation-cap", children: ACADEMY_CHILDREN },
       { label: "Challenges", href: "/app/challenges", icon: "target" },
+      { label: "Tracks", href: "/app/tracks", icon: "route" },
     ],
   },
   {
     title: "Community",
     items: [
+      { label: "Feed", href: "/app/feed", icon: "newspaper" },
+      { label: "Friends", href: "/app/friends", icon: "user-plus" },
+      { label: "Groups", href: "/app/groups", icon: "users-round" },
       { label: "Teams", href: "/app/teams", icon: "users" },
       { label: "Competitions", href: "/app/competitions", icon: "trophy" },
+      { label: "Top Projects", href: "/app/top-projects", icon: "crown" },
       { label: "Leaderboard", href: "/app/leaderboard", icon: "bar-chart-3" },
       { label: "Badges", href: "/app/badges", icon: "award" },
     ],
@@ -36,10 +49,15 @@ const TEACHER: NavSection[] = [
   {
     title: "Community",
     items: [
+      { label: "Feed", href: "/app/feed", icon: "newspaper" },
+      { label: "Friends", href: "/app/friends", icon: "user-plus" },
+      { label: "Groups", href: "/app/groups", icon: "users-round" },
       { label: "Teams", href: "/app/teams", icon: "users" },
       { label: "Competitions", href: "/app/competitions", icon: "trophy" },
+      { label: "Top Projects", href: "/app/top-projects", icon: "crown" },
       { label: "Leaderboard", href: "/app/leaderboard", icon: "bar-chart-3" },
-      { label: "Content Library", href: "/app/learn", icon: "graduation-cap" },
+      { label: "Academy", href: "/app/learn", icon: "graduation-cap", children: ACADEMY_CHILDREN },
+      { label: "Tracks", href: "/app/tracks", icon: "route" },
     ],
   },
 ];
@@ -76,7 +94,7 @@ const SUPER_ADMIN: NavSection[] = [
   {
     title: "Platform",
     items: [
-      { label: "Content", href: "/app/admin/content", icon: "library" },
+      { label: "Academy", href: "/app/learn", icon: "graduation-cap", children: ACADEMY_CHILDREN },
       { label: "Competitions", href: "/app/competitions", icon: "trophy" },
       { label: "Users", href: "/app/admin/users", icon: "users" },
       { label: "System", href: "/app/admin/system", icon: "activity" },

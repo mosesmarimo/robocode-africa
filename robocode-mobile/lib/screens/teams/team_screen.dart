@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:intl/intl.dart';
 
 import '../../api/api_client.dart';
 import '../../theme.dart';
@@ -163,10 +162,10 @@ class _TeamScreenState extends State<TeamScreen> {
                   ),
                 ],
                 const SizedBox(height: 24),
-                _sectionTitle('Members'),
+                const SectionTitle('Members'),
                 const SizedBox(height: 10),
                 if (members.isEmpty)
-                  _hint('No members yet.')
+                  const HintCard('No members yet.')
                 else
                   Card(
                     child: Column(
@@ -181,18 +180,18 @@ class _TeamScreenState extends State<TeamScreen> {
                     ),
                   ),
                 const SizedBox(height: 24),
-                _sectionTitle('Shared projects'),
+                const SectionTitle('Shared projects'),
                 const SizedBox(height: 10),
                 if (projects.isEmpty)
-                  _hint('No shared projects yet.')
+                  const HintCard('No shared projects yet.')
                 else
                   ...projects.map((p) =>
                       _projectCard(context, (p as Map).cast<String, dynamic>())),
                 const SizedBox(height: 24),
-                _sectionTitle('Team chat'),
+                const SectionTitle('Team chat'),
                 const SizedBox(height: 10),
                 if (chatMessages.isEmpty)
-                  _hint('No messages yet. Say hi!')
+                  const HintCard('No messages yet. Say hi!')
                 else
                   ...chatMessages.map((m) =>
                       _chatBubble(context, (m as Map).cast<String, dynamic>())),
@@ -335,7 +334,7 @@ class _TeamScreenState extends State<TeamScreen> {
     final title = project['title']?.toString() ??
         project['name']?.toString() ??
         'Project';
-    final board = project['board']?.toString();
+    final board = project['boardType']?.toString();
 
     return Card(
       child: InkWell(
@@ -417,7 +416,7 @@ class _TeamScreenState extends State<TeamScreen> {
                                 fontWeight: FontWeight.w600, fontSize: 13)),
                       ),
                       if (createdAt != null)
-                        Text(_relative(createdAt),
+                        Text(relativeTime(createdAt),
                             style: TextStyle(
                                 fontSize: 11,
                                 color: Theme.of(context).hintColor)),
@@ -472,22 +471,4 @@ class _TeamScreenState extends State<TeamScreen> {
     );
   }
 
-  String _relative(DateTime dt) {
-    final diff = DateTime.now().difference(dt);
-    if (diff.inSeconds < 60) return 'just now';
-    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
-    if (diff.inHours < 24) return '${diff.inHours}h ago';
-    if (diff.inDays < 7) return '${diff.inDays}d ago';
-    return DateFormat.yMMMd().format(dt);
-  }
-
-  Widget _sectionTitle(String title) =>
-      Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold));
-
-  Widget _hint(String text) => Card(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Text(text, style: TextStyle(color: Theme.of(context).hintColor)),
-        ),
-      );
 }

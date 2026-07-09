@@ -55,7 +55,7 @@ export function TeamChat({ teamId, currentUserId, isStaff, initialMessages }: Te
 
     // Optimistic: add as "pending"
     const optimistic: ChatMessageItem = {
-      id: `opt-${Date.now()}`,
+      id: `opt-${crypto.randomUUID()}`,
       body: trimmed,
       status: "pending",
       createdAt: new Date(),
@@ -172,6 +172,7 @@ export function TeamChat({ teamId, currentUserId, isStaff, initialMessages }: Te
           type="text"
           value={body}
           onChange={(e) => setBody(e.target.value)}
+          aria-label="Send a message to your team"
           placeholder="Send a message to your team…"
           maxLength={500}
           disabled={pending}

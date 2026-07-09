@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { AddStudentDialog, CreateAssignmentDialog } from "@/components/teacher/teacher-buttons";
-import { initials, formatRelative } from "@/lib/utils";
+import { initials, formatRelative, formatDay } from "@/lib/utils";
 import { apiGet, ApiError } from "@/lib/api/client";
 
 export const metadata = { title: "Class Detail" };
@@ -168,7 +168,7 @@ export default async function ClassDetailPage({
                     {a.dueAt && (
                       <div className="flex items-center gap-1 text-xs text-muted-foreground shrink-0">
                         <CalendarDays className="size-3.5" />
-                        {new Date(a.dueAt).toLocaleDateString()}
+                        {formatDay(a.dueAt)}
                       </div>
                     )}
                   </div>

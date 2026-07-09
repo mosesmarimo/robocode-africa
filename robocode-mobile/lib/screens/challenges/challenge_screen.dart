@@ -5,6 +5,7 @@ import '../../api/api_client.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
 import 'challenges_screen.dart';
+import 'solutions_gallery_sheet.dart';
 
 class ChallengeScreen extends StatefulWidget {
   final String slug;
@@ -41,6 +42,7 @@ class _ChallengeScreenState extends State<ChallengeScreen> {
             final submissions = (data['submissions'] as List?) ?? [];
             final isPassed = data['isPassed'] == true;
             final best = (data['bestSubmission'] as Map?);
+            final taskId = task['id']?.toString() ?? '';
 
             final title = task['title']?.toString() ?? 'Challenge';
             final description = (task['prompt'] ?? task['description'])?.toString() ?? '';
@@ -64,6 +66,10 @@ class _ChallengeScreenState extends State<ChallengeScreen> {
                 ),
                 const SizedBox(height: 16),
                 _banner(isPassed, best),
+                if (isPassed && taskId.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  _solutionsGalleryButton(context, taskId),
+                ],
                 if (description.isNotEmpty) ...[
                   const SizedBox(height: 16),
                   Card(
@@ -122,6 +128,21 @@ class _ChallengeScreenState extends State<ChallengeScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// "See how others solved it" — opens the anonymized post-solve solutions
+  /// gallery. Only rendered once the caller has passed the task (see
+  /// [isPassed] above); the backend itself also enforces the gate so this is
+  /// purely about not teasing an entry point the caller can't use yet.
+  Widget _solutionsGalleryButton(BuildContext context, String taskId) {
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton.icon(
+        onPressed: () => showSolutionsGallery(context, taskId: taskId),
+        icon: const Icon(Icons.groups_rounded),
+        label: const Text('See how others solved it'),
       ),
     );
   }

@@ -17,7 +17,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { EnterButton } from "@/components/competitions/enter-button";
 import { TRACK_LABELS } from "@/lib/domain/constants";
-import { initials } from "@/lib/utils";
+import { initials, formatDay } from "@/lib/utils";
 
 export const metadata = { title: "Competition" };
 
@@ -71,7 +71,7 @@ const SCOPE_ICON: Record<string, React.ElementType> = {
 
 function formatDate(d: string | null): string {
   if (!d) return "TBC";
-  return new Date(d).toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" });
+  return formatDay(d, { day: "numeric", month: "long", year: "numeric" });
 }
 
 export default async function CompetitionDetailPage({
